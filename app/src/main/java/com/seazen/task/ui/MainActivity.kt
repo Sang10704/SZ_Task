@@ -116,6 +116,14 @@ class MainActivity : ComponentActivity() {
             }
         }
     }
+
+    override fun onResume() {
+        super.onResume()
+        try {
+            val repository = TaskRepository(applicationContext)
+            repository.notifyWidgetUpdate()
+        } catch (_: Exception) {}
+    }
 }
 
 @Composable

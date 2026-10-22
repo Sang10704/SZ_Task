@@ -113,7 +113,8 @@ class TaskRepository(private val context: Context) {
         try {
             val widgetManager = AppWidgetManager.getInstance(context)
 
-            // 1. Cập nhật SeaZenWidgetProvider (Việc Hôm Nay)
+            // 1. Cập nhật SeaZenWidgetProvider (Việc Hôm Nay) - Thực thi trực tiếp tức thời
+            SeaZenWidgetProvider.notifyAllWidgets(context)
             val todayIds = widgetManager.getAppWidgetIds(ComponentName(context, SeaZenWidgetProvider::class.java))
             if (todayIds.isNotEmpty()) {
                 val intent = Intent(context, SeaZenWidgetProvider::class.java).apply {

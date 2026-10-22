@@ -390,7 +390,7 @@
         android:gravity="center_vertical"
         android:orientation="horizontal">
 
-        <!-- Navigation Pill -->
+        <!-- Scope Filter Pill: Cá nhân & Tất cả -->
         <LinearLayout
             android:id="@+id/widget_bottom_pill"
             android:layout_width="0dp"
@@ -400,39 +400,30 @@
             android:background="@drawable/widget_bottom_pill_bg"
             android:gravity="center_vertical"
             android:orientation="horizontal"
-            android:paddingStart="6dp"
-            android:paddingEnd="6dp">
+            android:padding="3dp">
 
             <TextView
-                android:id="@+id/widget_btn_today_reset"
+                android:id="@+id/widget_btn_scope_personal"
                 android:layout_width="0dp"
                 android:layout_height="match_parent"
                 android:layout_weight="1"
+                android:background="@drawable/widget_pill_active_segment"
                 android:gravity="center"
-                android:text="Hôm nay"
+                android:text="Cá nhân"
                 android:textColor="#5B4DF6"
-                android:textSize="11sp"
+                android:textSize="12sp"
                 android:textStyle="bold" />
 
             <TextView
-                android:id="@+id/widget_nav_calendar"
+                android:id="@+id/widget_btn_scope_all"
                 android:layout_width="0dp"
                 android:layout_height="match_parent"
                 android:layout_weight="1"
+                android:background="@drawable/widget_pill_inactive_segment"
                 android:gravity="center"
-                android:text="Xem lịch"
+                android:text="Tất cả"
                 android:textColor="#64748B"
-                android:textSize="11sp" />
-
-            <TextView
-                android:id="@+id/widget_nav_dept"
-                android:layout_width="0dp"
-                android:layout_height="match_parent"
-                android:layout_weight="1"
-                android:gravity="center"
-                android:text="Phòng ban"
-                android:textColor="#64748B"
-                android:textSize="11sp" />
+                android:textSize="12sp" />
         </LinearLayout>
 
         <!-- Dark Floating Add Button -->

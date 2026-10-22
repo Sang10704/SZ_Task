@@ -42,8 +42,19 @@ class SeaZenWidgetViewsFactory(private val context: Context) : RemoteViewsServic
             val dateStr = prefs.getString("widget_selected_date", null)
             activeDate = parseLocalDate(dateStr) ?: LocalDate.now()
 
-            // Lấy tất cả công việc (của cả mình và người khác) hoạt động trong ngày này
-            val tasksOnDate = allTasks.filter { it.isActiveOn(activeDate) }
+            // Lấy phạm vi lọc từ SharedPreferences: "PERSONAL" (mặc định) vs "ALL"
+            val scope = prefs.getString("widget_scope", "PERSONAL") ?: "PERSONAL"
+            val isPersonal = (scope == "PERSONAL")
+
+            // Lấy công việc: Nếu là Cá nhân thì chỉ lấy việc của mình, nếu là Tất cả thì lấy toàn bộ việc trong ngày
+            val tasksOnDate = allTasks.filter { task ->
+                val active = task.isActiveOn(activeDate)
+                if (isPersonal) {
+                    active && isMyTask(task)
+                } else {
+                    active
+                }
+            }
 
             // Sắp xếp: Công việc của bản thân đưa lên trước, sau đó là của người khác
             taskList = tasksOnDate.sortedWith(
@@ -160,9 +171,7 @@ class SeaZenWidgetViewsFactory(private val context: Context) : RemoteViewsServic
     }
 
     private fun isMyTask(task: TaskItem): Boolean {
-        if (currentUserEmail.isBlank()) return true
-        val email = task.safeAssigneeEmail.lowercase().trim()
-        return email.contains(currentUserEmail) || task.safeAssigneeName.lowercase().contains("sang")
+        return SeaZenWidgetProvider.isMyTask(task, currentUserEmail)
     }
 
     override fun getLoadingView(): RemoteViews? = null

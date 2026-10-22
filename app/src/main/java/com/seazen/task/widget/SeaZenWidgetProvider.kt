@@ -88,6 +88,12 @@ class SeaZenWidgetProvider : AppWidgetProvider() {
                 notifyAllWidgets(context)
             }
 
+            ACTION_SET_SCOPE -> {
+                val newScope = intent.getStringExtra(EXTRA_SCOPE) ?: "PERSONAL"
+                prefs.edit().putString("widget_scope", newScope).apply()
+                notifyAllWidgets(context)
+            }
+
             ACTION_REFRESH_TODAY -> {
                 CoroutineScope(Dispatchers.IO).launch {
                     val repository = TaskRepository(context.applicationContext)
@@ -123,6 +129,7 @@ class SeaZenWidgetProvider : AppWidgetProvider() {
         const val ACTION_CHANGE_WEEK = "com.seazen.task.ACTION_WIDGET_CHANGE_WEEK"
         const val ACTION_RESET_TODAY = "com.seazen.task.ACTION_WIDGET_RESET_TODAY"
         const val ACTION_REFRESH_TODAY = "com.seazen.task.ACTION_WIDGET_REFRESH_TODAY"
+        const val ACTION_SET_SCOPE = "com.seazen.task.ACTION_WIDGET_SET_SCOPE"
         const val ACTION_OPEN_CREATE = "com.seazen.task.ACTION_WIDGET_OPEN_CREATE"
         const val ACTION_OPEN_TAB = "com.seazen.task.ACTION_WIDGET_OPEN_TAB"
 
@@ -132,16 +139,31 @@ class SeaZenWidgetProvider : AppWidgetProvider() {
         const val EXTRA_ASSIGNEE = "extra_assignee"
         const val EXTRA_SELECTED_DATE = "extra_selected_date"
         const val EXTRA_OFFSET_DELTA = "extra_offset_delta"
+        const val EXTRA_SCOPE = "extra_scope"
 
         const val ACTION_TYPE_TOGGLE = "toggle"
         const val ACTION_TYPE_LOCKED = "locked"
         const val ACTION_TYPE_OPEN_DETAIL = "open_detail"
+
+        fun isMyTask(task: com.seazen.task.data.TaskItem, currentUserEmail: String): Boolean {
+            val email = task.safeAssigneeEmail.lowercase().trim()
+            val name = task.safeAssigneeName.lowercase().trim()
+            if (currentUserEmail.isNotBlank() && email.contains(currentUserEmail)) return true
+            if (name.contains("sang") || name.contains("nguyễn")) return true
+            if (currentUserEmail.isBlank()) return true
+            return false
+        }
 
         fun updateAppWidget(context: Context, appWidgetManager: AppWidgetManager, appWidgetId: Int) {
             try {
                 val repository = TaskRepository(context)
                 val prefs = context.getSharedPreferences("seazen_task_prefs", Context.MODE_PRIVATE)
                 val allTasks = repository.tasks.value
+                val currentUserEmail = repository.getSavedEmail().lowercase().trim()
+
+                // Scope: Mặc định là PERSONAL (Cá nhân)
+                val currentScope = prefs.getString("widget_scope", "PERSONAL") ?: "PERSONAL"
+                val isPersonal = (currentScope == "PERSONAL")
 
                 // 1. Xác định ngày được chọn và tuần hiển thị
                 val savedDateStr = prefs.getString("widget_selected_date", null)
@@ -202,8 +224,10 @@ class SeaZenWidgetProvider : AppWidgetProvider() {
                         }
                     }
 
-                    // Chấm báo hiệu có công việc trong ngày
-                    val hasTasks = allTasks.any { it.isActiveOn(date) }
+                    // Chấm báo hiệu có công việc trong ngày theo phạm vi lọc
+                    val hasTasks = allTasks.any { task ->
+                        task.isActiveOn(date) && (!isPersonal || isMyTask(task, currentUserEmail))
+                    }
                     views.setViewVisibility(dayDotIds[i], if (hasTasks) View.VISIBLE else View.INVISIBLE)
 
                     // Sự kiện nhấn vào ngày để chọn
@@ -267,31 +291,35 @@ class SeaZenWidgetProvider : AppWidgetProvider() {
                 )
                 views.setPendingIntentTemplate(R.id.widget_task_list, itemClickPending)
 
-                // 6. Thanh điều hướng dưới đáy
-                val todayResetIntent = Intent(context, SeaZenWidgetProvider::class.java).apply {
-                    action = ACTION_RESET_TODAY
+                // 6. Thanh bộ lọc phạm vi (Cá nhân / Tất cả) & Nút Thêm mới (+)
+                if (isPersonal) {
+                    views.setInt(R.id.widget_btn_scope_personal, "setBackgroundResource", R.drawable.widget_pill_active_segment)
+                    views.setTextColor(R.id.widget_btn_scope_personal, Color.parseColor("#5B4DF6"))
+                    views.setInt(R.id.widget_btn_scope_all, "setBackgroundResource", R.drawable.widget_pill_inactive_segment)
+                    views.setTextColor(R.id.widget_btn_scope_all, Color.parseColor("#64748B"))
+                } else {
+                    views.setInt(R.id.widget_btn_scope_personal, "setBackgroundResource", R.drawable.widget_pill_inactive_segment)
+                    views.setTextColor(R.id.widget_btn_scope_personal, Color.parseColor("#64748B"))
+                    views.setInt(R.id.widget_btn_scope_all, "setBackgroundResource", R.drawable.widget_pill_active_segment)
+                    views.setTextColor(R.id.widget_btn_scope_all, Color.parseColor("#5B4DF6"))
+                }
+
+                val personalIntent = Intent(context, SeaZenWidgetProvider::class.java).apply {
+                    action = ACTION_SET_SCOPE
+                    putExtra(EXTRA_SCOPE, "PERSONAL")
                 }
                 views.setOnClickPendingIntent(
-                    R.id.widget_btn_today_reset,
-                    PendingIntent.getBroadcast(context, 1205, todayResetIntent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+                    R.id.widget_btn_scope_personal,
+                    PendingIntent.getBroadcast(context, 1205, personalIntent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
                 )
 
-                val openCalendarIntent = Intent(context, SeaZenWidgetProvider::class.java).apply {
-                    action = ACTION_OPEN_TAB
-                    putExtra("target_tab", 2)
+                val allIntent = Intent(context, SeaZenWidgetProvider::class.java).apply {
+                    action = ACTION_SET_SCOPE
+                    putExtra(EXTRA_SCOPE, "ALL")
                 }
                 views.setOnClickPendingIntent(
-                    R.id.widget_nav_calendar,
-                    PendingIntent.getBroadcast(context, 1206, openCalendarIntent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
-                )
-
-                val openDeptIntent = Intent(context, SeaZenWidgetProvider::class.java).apply {
-                    action = ACTION_OPEN_TAB
-                    putExtra("target_tab", 1)
-                }
-                views.setOnClickPendingIntent(
-                    R.id.widget_nav_dept,
-                    PendingIntent.getBroadcast(context, 1207, openDeptIntent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+                    R.id.widget_btn_scope_all,
+                    PendingIntent.getBroadcast(context, 1206, allIntent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
                 )
 
                 val addIntent = Intent(context, SeaZenWidgetProvider::class.java).apply {
@@ -307,7 +335,7 @@ class SeaZenWidgetProvider : AppWidgetProvider() {
             } catch (_: Exception) {}
         }
 
-        private fun notifyAllWidgets(context: Context) {
+        fun notifyAllWidgets(context: Context) {
             try {
                 val appWidgetManager = AppWidgetManager.getInstance(context)
                 val ids = appWidgetManager.getAppWidgetIds(ComponentName(context, SeaZenWidgetProvider::class.java))
