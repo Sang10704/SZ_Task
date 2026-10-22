@@ -3,95 +3,90 @@
     android:id="@+id/widget_item_row"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
-    android:layout_marginBottom="5dp"
-    android:background="@drawable/widget_bg_item"
+    android:layout_marginBottom="6dp"
+    android:background="@drawable/widget_white_item_bg"
     android:gravity="center_vertical"
     android:orientation="horizontal"
-    android:paddingStart="8dp"
-    android:paddingTop="7dp"
-    android:paddingEnd="8dp"
-    android:paddingBottom="7dp">
+    android:paddingStart="10dp"
+    android:paddingTop="9dp"
+    android:paddingEnd="10dp"
+    android:paddingBottom="9dp">
 
-    <!-- Checkbox Button to toggle task -->
-    <ImageButton
-        android:id="@+id/widget_item_check_btn"
-        android:layout_width="26dp"
-        android:layout_height="26dp"
-        android:background="@android:color/transparent"
-        android:contentDescription="Đánh dấu hoàn thành"
-        android:scaleType="fitCenter"
-        android:src="@drawable/ic_widget_check_off" />
+    <!-- Left Status / Checkbox Container -->
+    <FrameLayout
+        android:layout_width="30dp"
+        android:layout_height="30dp"
+        android:gravity="center">
 
-    <!-- Text Info Column -->
+        <!-- For own task: Interactive Checkbox -->
+        <ImageButton
+            android:id="@+id/widget_item_check_btn"
+            android:layout_width="26dp"
+            android:layout_height="26dp"
+            android:layout_gravity="center"
+            android:background="@android:color/transparent"
+            android:contentDescription="Đánh dấu hoàn thành"
+            android:scaleType="fitCenter"
+            android:src="@drawable/ic_widget_check_off" />
+
+        <!-- For other's task: Disabled / Read-only Lock Indicator -->
+        <ImageView
+            android:id="@+id/widget_item_lock_icon"
+            android:layout_width="24dp"
+            android:layout_height="24dp"
+            android:layout_gravity="center"
+            android:background="@drawable/widget_day_today_bg"
+            android:contentDescription="Chỉ xem"
+            android:padding="4dp"
+            android:scaleType="fitCenter"
+            android:src="@drawable/ic_widget_lock"
+            android:visibility="gone" />
+    </FrameLayout>
+
+    <!-- Info Column -->
     <LinearLayout
         android:layout_width="0dp"
         android:layout_height="wrap_content"
-        android:layout_marginStart="8dp"
+        android:layout_marginStart="10dp"
         android:layout_weight="1"
         android:orientation="vertical">
 
-        <!-- Title Row with Tag -->
-        <LinearLayout
+        <TextView
+            android:id="@+id/widget_item_title"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:gravity="center_vertical"
-            android:orientation="horizontal">
+            android:ellipsize="end"
+            android:maxLines="1"
+            android:text="Tiêu đề công việc"
+            android:textColor="#0F172A"
+            android:textSize="12.5sp"
+            android:textStyle="bold" />
 
-            <TextView
-                android:id="@+id/widget_item_tag"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_marginEnd="5dp"
-                android:background="@drawable/widget_badge_red"
-                android:paddingStart="4dp"
-                android:paddingTop="1dp"
-                android:paddingEnd="4dp"
-                android:paddingBottom="1dp"
-                android:text="TRỄ"
-                android:textColor="#FEE2E2"
-                android:textSize="8sp"
-                android:textStyle="bold"
-                android:visibility="gone" />
-
-            <TextView
-                android:id="@+id/widget_item_title"
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:ellipsize="end"
-                android:maxLines="1"
-                android:text="Tiêu đề công việc"
-                android:textColor="#F8FAFC"
-                android:textSize="12sp"
-                android:textStyle="normal" />
-        </LinearLayout>
-
-        <!-- Sub Row: Project & Due Time -->
-        <LinearLayout
+        <TextView
+            android:id="@+id/widget_item_sub"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="2dp"
-            android:gravity="center_vertical"
-            android:orientation="horizontal">
-
-            <TextView
-                android:id="@+id/widget_item_project"
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:ellipsize="end"
-                android:maxLines="1"
-                android:text="SeaZen Tech"
-                android:textColor="#818CF8"
-                android:textSize="10sp" />
-
-            <TextView
-                android:id="@+id/widget_item_time"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="17:00"
-                android:textColor="#64748B"
-                android:textSize="10sp" />
-        </LinearLayout>
+            android:ellipsize="end"
+            android:maxLines="1"
+            android:text="11:00 AM • SeaZen Tech • Giang Võ"
+            android:textColor="#64748B"
+            android:textSize="10.5sp" />
     </LinearLayout>
+
+    <!-- Tag Badge on the Right -->
+    <TextView
+        android:id="@+id/widget_item_tag"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginStart="6dp"
+        android:background="@drawable/widget_tag_readonly"
+        android:paddingStart="6dp"
+        android:paddingTop="2dp"
+        android:paddingEnd="6dp"
+        android:paddingBottom="2dp"
+        android:text="Chỉ xem"
+        android:textColor="#475569"
+        android:textSize="9.5sp"
+        android:textStyle="bold" />
 </LinearLayout>

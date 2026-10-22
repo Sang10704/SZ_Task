@@ -82,40 +82,36 @@ class MainActivity : ComponentActivity() {
         val repository = TaskRepository(applicationContext)
 
         setContent {
-            var isDark by remember { mutableStateOf(repository.isDarkMode()) }
             var appLang by remember { mutableStateOf(repository.getAppLanguage()) }
 
-            SZTaskTheme(isDark = isDark) {
-                if (isCrashRecovery) {
-                    val prefs = getSharedPreferences("seazen_task_prefs", Context.MODE_PRIVATE)
-                    val errorMsg = prefs.getString("last_crash_error", "Đã phát hiện lỗi ứng dụng") ?: ""
-                    CrashRecoveryScreen(
-                        errorMessage = errorMsg,
-                        onResetAndRestart = {
-                            repository.resetToFallback()
-                            prefs.edit().remove("last_crash_error").apply()
-                            val restartIntent = Intent(this, MainActivity::class.java).apply {
-                                flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
+            CompositionLocalProvider(LocalAppLanguage provides appLang) {
+                SZTaskTheme {
+                    if (isCrashRecovery) {
+                        val prefs = getSharedPreferences("seazen_task_prefs", Context.MODE_PRIVATE)
+                        val errorMsg = prefs.getString("last_crash_error", "Đã phát hiện lỗi ứng dụng") ?: ""
+                        CrashRecoveryScreen(
+                            errorMessage = errorMsg,
+                            onResetAndRestart = {
+                                repository.resetToFallback()
+                                prefs.edit().remove("last_crash_error").apply()
+                                val restartIntent = Intent(this, MainActivity::class.java).apply {
+                                    flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
+                                }
+                                startActivity(restartIntent)
+                                finish()
                             }
-                            startActivity(restartIntent)
-                            finish()
-                        }
-                    )
-                } else {
-                    AppNavigator(
-                        repository = repository,
-                        intentState = currentIntentState,
-                        isDark = isDark,
-                        onToggleDark = {
-                            isDark = it
-                            repository.setDarkMode(it)
-                        },
-                        appLang = appLang,
-                        onSelectLang = {
-                            appLang = it
-                            repository.setAppLanguage(it)
-                        }
-                    )
+                        )
+                    } else {
+                        AppNavigator(
+                            repository = repository,
+                            intentState = currentIntentState,
+                            appLang = appLang,
+                            onSelectLang = {
+                                appLang = it
+                                repository.setAppLanguage(it)
+                            }
+                        )
+                    }
                 }
             }
         }
@@ -128,6 +124,9 @@ fun CrashRecoveryScreen(
     onResetAndRestart: () -> Unit
 ) {
     val context = LocalContext.current
+    val lang = LocalAppLanguage.current
+    val str = AppStrings.of(lang)
+
     Scaffold(containerColor = BackgroundLight) { padding ->
         Column(
             modifier = Modifier
@@ -148,13 +147,13 @@ fun CrashRecoveryScreen(
                     verticalArrangement = Arrangement.spacedBy(14.dp)
                 ) {
                     Text(
-                        text = "Khôi phục trạng thái SZ Task",
+                        text = str.crashRecoveryTitle,
                         fontSize = 18.sp,
                         fontWeight = FontWeight.Bold,
                         color = Color(0xFFDC2626)
                     )
                     Text(
-                        text = "Hệ thống tự động phát hiện và ngăn ngừa lỗi dừng đột ngột:",
+                        text = str.crashRecoveryDesc,
                         fontSize = 12.sp,
                         color = TextMuted
                     )
@@ -178,19 +177,19 @@ fun CrashRecoveryScreen(
                         shape = RoundedCornerShape(12.dp),
                         colors = ButtonDefaults.buttonColors(containerColor = PrimaryPurple)
                     ) {
-                        Text("Khôi phục bộ nhớ & Khởi động lại", fontWeight = FontWeight.Bold)
+                        Text(str.actionRestoreRestart, fontWeight = FontWeight.Bold)
                     }
 
                     OutlinedButton(
                         onClick = {
                             val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
                             clipboard.setPrimaryClip(android.content.ClipData.newPlainText("error_log", errorMessage))
-                            Toast.makeText(context, "Đã sao chép chi tiết lỗi", Toast.LENGTH_SHORT).show()
+                            Toast.makeText(context, if (lang == "en") "Error details copied" else "Đã sao chép chi tiết lỗi", Toast.LENGTH_SHORT).show()
                         },
                         modifier = Modifier.fillMaxWidth().height(44.dp),
                         shape = RoundedCornerShape(10.dp)
                     ) {
-                        Text("Sao chép chi tiết lỗi")
+                        Text(str.actionCopyCrashLog)
                     }
                 }
             }
@@ -212,28 +211,16 @@ val DotCyan = Color(0xFF06B6D4)
 val PillBg = Color(0xFFF1F5F9)
 
 @Composable
-fun SZTaskTheme(isDark: Boolean = false, content: @Composable () -> Unit) {
-    val colorScheme = if (isDark) {
-        darkColorScheme(
-            primary = PrimaryPurple,
-            onPrimary = Color.White,
-            secondary = PrimaryPurpleDark,
-            background = Color(0xFF0F172A),
-            surface = Color(0xFF1E293B),
-            surfaceVariant = Color(0xFF334155),
-            outline = Color(0xFF475569)
-        )
-    } else {
-        lightColorScheme(
-            primary = PrimaryPurple,
-            onPrimary = Color.White,
-            secondary = PrimaryPurpleDark,
-            background = BackgroundLight,
-            surface = Color.White,
-            surfaceVariant = PillBg,
-            outline = Color(0xFFE2E8F0)
-        )
-    }
+fun SZTaskTheme(content: @Composable () -> Unit) {
+    val colorScheme = lightColorScheme(
+        primary = PrimaryPurple,
+        onPrimary = Color.White,
+        secondary = PrimaryPurpleDark,
+        background = BackgroundLight,
+        surface = Color.White,
+        surfaceVariant = PillBg,
+        outline = Color(0xFFE2E8F0)
+    )
     MaterialTheme(
         colorScheme = colorScheme,
         content = content
@@ -244,8 +231,6 @@ fun SZTaskTheme(isDark: Boolean = false, content: @Composable () -> Unit) {
 fun AppNavigator(
     repository: TaskRepository,
     intentState: MutableState<Intent?>,
-    isDark: Boolean,
-    onToggleDark: (Boolean) -> Unit,
     appLang: String,
     onSelectLang: (String) -> Unit
 ) {
@@ -255,8 +240,6 @@ fun AppNavigator(
         MainContainerScreen(
             repository = repository,
             intentState = intentState,
-            isDark = isDark,
-            onToggleDark = onToggleDark,
             appLang = appLang,
             onSelectLang = onSelectLang,
             onLogout = {
@@ -284,8 +267,6 @@ fun AppNavigator(
 fun MainContainerScreen(
     repository: TaskRepository,
     intentState: MutableState<Intent?>,
-    isDark: Boolean,
-    onToggleDark: (Boolean) -> Unit,
     appLang: String,
     onSelectLang: (String) -> Unit,
     onLogout: () -> Unit
@@ -329,7 +310,8 @@ fun MainContainerScreen(
             selectedTab = openTab
         }
         if (openCreate) {
-            targetCreateDate = LocalDate.now()
+            val dateStr = targetIntent.getStringExtra("target_create_date")
+            targetCreateDate = parseLocalDate(dateStr) ?: LocalDate.now()
             showCreateBottomSheet = true
         }
         intentState.value = null
@@ -385,6 +367,7 @@ fun MainContainerScreen(
                         repository = repository,
                         tasks = tasks,
                         taskChinhList = taskChinhList,
+                        userEmail = userEmail,
                         onProjectClick = { viewingProject = it },
                         onTaskClick = { viewingTask = it }
                     )
@@ -392,6 +375,7 @@ fun MainContainerScreen(
                         repository = repository,
                         tasks = tasks,
                         taskChinhList = taskChinhList,
+                        userEmail = userEmail,
                         onAddClick = { date ->
                             targetCreateDate = date
                             showCreateBottomSheet = true
@@ -410,8 +394,6 @@ fun MainContainerScreen(
                 SettingsTab(
                     repository = repository,
                     userEmail = userEmail,
-                    isDark = isDark,
-                    onToggleDark = onToggleDark,
                     appLang = appLang,
                     onSelectLang = onSelectLang,
                     onLogout = onLogout
@@ -469,9 +451,9 @@ fun MainContainerScreen(
                 coroutineScope.launch {
                     val res = repository.requestTaskExtension(liveProj.id, newDate, reason)
                     if (res.isSuccess) {
-                        Toast.makeText(context, "Đã gửi yêu cầu dời hạn thành công", Toast.LENGTH_SHORT).show()
+                        Toast.makeText(context, if (appLang == "en") "Extension request submitted" else "Đã gửi yêu cầu dời hạn thành công", Toast.LENGTH_SHORT).show()
                     } else {
-                        Toast.makeText(context, "Lỗi dời hạn: ${res.exceptionOrNull()?.message}", Toast.LENGTH_LONG).show()
+                        Toast.makeText(context, if (appLang == "en") "Extension error: ${res.exceptionOrNull()?.message}" else "Lỗi dời hạn: ${res.exceptionOrNull()?.message}", Toast.LENGTH_LONG).show()
                     }
                 }
             },
@@ -487,9 +469,9 @@ fun MainContainerScreen(
                         assigneeEmail = email
                     )
                     if (res.isSuccess) {
-                        Toast.makeText(context, "Đã thêm việc con vào: ${liveProj.safeTitle}", Toast.LENGTH_SHORT).show()
+                        Toast.makeText(context, if (appLang == "en") "Subtask added to: ${liveProj.safeTitle}" else "Đã thêm việc con vào: ${liveProj.safeTitle}", Toast.LENGTH_SHORT).show()
                     } else {
-                        Toast.makeText(context, "Lỗi: ${res.exceptionOrNull()?.message}", Toast.LENGTH_LONG).show()
+                        Toast.makeText(context, if (appLang == "en") "Error: ${res.exceptionOrNull()?.message}" else "Lỗi: ${res.exceptionOrNull()?.message}", Toast.LENGTH_LONG).show()
                     }
                 }
             }
@@ -516,9 +498,9 @@ fun MainContainerScreen(
                         assigneeEmail = email
                     )
                     if (res.isSuccess) {
-                        Toast.makeText(context, "Đã thêm công việc thành công", Toast.LENGTH_SHORT).show()
+                        Toast.makeText(context, if (appLang == "en") "Task added successfully" else "Đã thêm công việc thành công", Toast.LENGTH_SHORT).show()
                     } else {
-                        Toast.makeText(context, "Lỗi: ${res.exceptionOrNull()?.message}", Toast.LENGTH_LONG).show()
+                        Toast.makeText(context, if (appLang == "en") "Error: ${res.exceptionOrNull()?.message}" else "Lỗi: ${res.exceptionOrNull()?.message}", Toast.LENGTH_LONG).show()
                     }
                 }
             },
@@ -543,13 +525,327 @@ fun MainContainerScreen(
                         ccEmail = ccEmail
                     )
                     if (res.isSuccess) {
-                        Toast.makeText(context, "Đã tạo công việc chính mới", Toast.LENGTH_SHORT).show()
+                        Toast.makeText(context, if (appLang == "en") "New project created successfully" else "Đã tạo công việc chính mới", Toast.LENGTH_SHORT).show()
                     } else {
-                        Toast.makeText(context, "Lỗi: ${res.exceptionOrNull()?.message}", Toast.LENGTH_LONG).show()
+                        Toast.makeText(context, if (appLang == "en") "Error: ${res.exceptionOrNull()?.message}" else "Lỗi: ${res.exceptionOrNull()?.message}", Toast.LENGTH_LONG).show()
                     }
                 }
             }
         )
+    }
+}
+
+val APP_DEPARTMENTS = listOf(
+    "SeaZen Tech",
+    "Điều Hành",
+    "Tuyển Dụng",
+    "Đào Tạo",
+    "Marketing",
+    "Hành Chính",
+    "C&B",
+    "Kế Toán",
+    "Pháp Lý",
+    "Kinh Doanh",
+    "Vận Hành"
+)
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun ScopeFilterBar(
+    selectedScope: String,
+    onSelectScope: (String) -> Unit,
+    modifier: Modifier = Modifier,
+    userDept: String = "SeaZen Tech"
+) {
+    val lang = LocalAppLanguage.current
+    val str = AppStrings.of(lang)
+    var showModalSheet by remember { mutableStateOf(false) }
+
+    val scopeChips = remember(userDept, str) {
+        listOf(
+            "PERSONAL" to str.filterScopePersonal,
+            "ALL" to str.filterScopeAll
+        ) + (if (userDept.isNotBlank() && userDept != "ALL" && !APP_DEPARTMENTS.contains(userDept)) listOf(userDept to userDept) else emptyList()) +
+        APP_DEPARTMENTS.map { it to it }
+    }
+
+    val currentDisplayLabel = when (selectedScope) {
+        "PERSONAL" -> str.labelScopePersonal
+        "ALL" -> str.labelScopeAll
+        else -> selectedScope
+    }
+
+    Row(
+        modifier = modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        // Nút mở modal bộ lọc có giao diện riêng
+        Surface(
+            onClick = { showModalSheet = true },
+            shape = RoundedCornerShape(10.dp),
+            color = PillBg,
+            border = CardDefaults.outlinedCardBorder().copy(brush = androidx.compose.ui.graphics.SolidColor(Color(0xFFE2E8F0))),
+            modifier = Modifier.height(34.dp)
+        ) {
+            Row(
+                modifier = Modifier.padding(horizontal = 10.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.Default.FilterList,
+                    contentDescription = str.filterScopeTitle,
+                    tint = PrimaryPurple,
+                    modifier = Modifier.size(15.dp)
+                )
+                Text(
+                    text = currentDisplayLabel,
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = PrimaryPurple,
+                    maxLines = 1
+                )
+                Icon(
+                    imageVector = Icons.Default.ArrowDropDown,
+                    contentDescription = null,
+                    tint = TextMuted,
+                    modifier = Modifier.size(16.dp)
+                )
+            }
+        }
+
+        Spacer(modifier = Modifier.width(8.dp))
+
+        // Dải filter dạng lướt ngang (Horizontal Scrollable Chips)
+        LazyRow(
+            modifier = Modifier.weight(1f),
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            items(scopeChips, key = { it.first }) { (scopeKey, scopeTitle) ->
+                val isSelected = (selectedScope == scopeKey)
+                Surface(
+                    onClick = { onSelectScope(scopeKey) },
+                    shape = RoundedCornerShape(18.dp),
+                    color = if (isSelected) PrimaryPurple else PillBg,
+                    border = if (isSelected) null else CardDefaults.outlinedCardBorder().copy(brush = androidx.compose.ui.graphics.SolidColor(Color(0xFFE2E8F0))),
+                    modifier = Modifier.height(32.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 12.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        if (scopeKey == "PERSONAL") {
+                            Icon(
+                                imageVector = Icons.Default.Person,
+                                contentDescription = null,
+                                tint = if (isSelected) Color.White else TextMuted,
+                                modifier = Modifier.size(13.dp)
+                            )
+                        }
+                        Text(
+                            text = scopeTitle,
+                            fontSize = 11.sp,
+                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                            color = if (isSelected) Color.White else TextDark
+                        )
+                    }
+                }
+            }
+        }
+    }
+
+    if (showModalSheet) {
+        ScopeFilterBottomSheet(
+            selectedScope = selectedScope,
+            onSelectScope = {
+                onSelectScope(it)
+                showModalSheet = false
+            },
+            onDismiss = { showModalSheet = false }
+        )
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun ScopeFilterBottomSheet(
+    selectedScope: String,
+    onSelectScope: (String) -> Unit,
+    onDismiss: () -> Unit
+) {
+    val lang = LocalAppLanguage.current
+    val str = AppStrings.of(lang)
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    var searchDeptQuery by remember { mutableStateOf("") }
+
+    val filteredDepts = remember(searchDeptQuery) {
+        if (searchDeptQuery.isBlank()) APP_DEPARTMENTS
+        else APP_DEPARTMENTS.filter { it.contains(searchDeptQuery, ignoreCase = true) }
+    }
+
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = sheetState,
+        containerColor = Color.White,
+        shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp),
+        contentWindowInsets = { WindowInsets(0, 0, 0, 0) }
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 20.dp)
+                .padding(top = 8.dp, bottom = 28.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column {
+                    Text(
+                        text = str.filterScopeTitle,
+                        fontSize = 17.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = TextDark
+                    )
+                    Text(
+                        text = str.filterScopeSubtitle,
+                        fontSize = 12.sp,
+                        color = TextMuted
+                    )
+                }
+                IconButton(onClick = onDismiss) {
+                    Icon(Icons.Default.Close, contentDescription = str.actionClose, tint = TextMuted)
+                }
+            }
+
+            // Ô tìm kiếm phòng ban
+            OutlinedTextField(
+                value = searchDeptQuery,
+                onValueChange = { searchDeptQuery = it },
+                placeholder = { Text(str.searchDepartmentPlaceholder, fontSize = 12.sp) },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(10.dp),
+                leadingIcon = {
+                    Icon(Icons.Default.Search, contentDescription = null, tint = PrimaryPurple, modifier = Modifier.size(18.dp))
+                },
+                trailingIcon = {
+                    if (searchDeptQuery.isNotBlank()) {
+                        IconButton(onClick = { searchDeptQuery = "" }) {
+                            Icon(Icons.Default.Close, contentDescription = null, tint = TextMuted, modifier = Modifier.size(16.dp))
+                        }
+                    }
+                }
+            )
+
+            // Danh sách lựa chọn có thể cuộn (LazyColumn)
+            LazyColumn(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(max = 340.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                // Mục 1: Cá nhân (Mặc định)
+                item {
+                    val isSelected = selectedScope == "PERSONAL"
+                    Surface(
+                        onClick = { onSelectScope("PERSONAL") },
+                        shape = RoundedCornerShape(12.dp),
+                        color = if (isSelected) AccentPurpleLight else Color.Transparent,
+                        border = if (isSelected) CardDefaults.outlinedCardBorder().copy(brush = androidx.compose.ui.graphics.SolidColor(PrimaryPurple.copy(alpha = 0.5f))) else null,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                                Surface(shape = CircleShape, color = if (isSelected) PrimaryPurple else PillBg, modifier = Modifier.size(32.dp)) {
+                                    Box(contentAlignment = Alignment.Center) {
+                                        Icon(Icons.Default.Person, contentDescription = null, tint = if (isSelected) Color.White else PrimaryPurple, modifier = Modifier.size(16.dp))
+                                    }
+                                }
+                                Column {
+                                    Text(text = str.filterScopePersonal, fontSize = 13.sp, fontWeight = FontWeight.Bold, color = if (isSelected) PrimaryPurple else TextDark)
+                                    Text(text = if (lang == "en") "Assigned to you directly" else "Công việc được giao cho bạn", fontSize = 11.sp, color = TextMuted)
+                                }
+                            }
+                            if (isSelected) {
+                                Icon(Icons.Default.Check, contentDescription = null, tint = PrimaryPurple, modifier = Modifier.size(18.dp))
+                            }
+                        }
+                    }
+                }
+
+                // Mục 2: Toàn công ty / Tất cả
+                item {
+                    val isSelected = selectedScope == "ALL"
+                    Surface(
+                        onClick = { onSelectScope("ALL") },
+                        shape = RoundedCornerShape(12.dp),
+                        color = if (isSelected) AccentPurpleLight else Color.Transparent,
+                        border = if (isSelected) CardDefaults.outlinedCardBorder().copy(brush = androidx.compose.ui.graphics.SolidColor(PrimaryPurple.copy(alpha = 0.5f))) else null,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                                Surface(shape = CircleShape, color = if (isSelected) PrimaryPurple else PillBg, modifier = Modifier.size(32.dp)) {
+                                    Box(contentAlignment = Alignment.Center) {
+                                        Icon(Icons.Default.Public, contentDescription = null, tint = if (isSelected) Color.White else PrimaryPurple, modifier = Modifier.size(16.dp))
+                                    }
+                                }
+                                Column {
+                                    Text(text = str.filterScopeAll, fontSize = 13.sp, fontWeight = FontWeight.Bold, color = if (isSelected) PrimaryPurple else TextDark)
+                                    Text(text = if (lang == "en") "Display all departments & tasks" else "Xem toàn bộ mục tiêu đơn vị", fontSize = 11.sp, color = TextMuted)
+                                }
+                            }
+                            if (isSelected) {
+                                Icon(Icons.Default.Check, contentDescription = null, tint = PrimaryPurple, modifier = Modifier.size(18.dp))
+                            }
+                        }
+                    }
+                }
+
+                // Phân mục các phòng ban
+                items(filteredDepts, key = { it }) { dept ->
+                    val isSelected = selectedScope == dept
+                    Surface(
+                        onClick = { onSelectScope(dept) },
+                        shape = RoundedCornerShape(12.dp),
+                        color = if (isSelected) AccentPurpleLight else Color.Transparent,
+                        border = if (isSelected) CardDefaults.outlinedCardBorder().copy(brush = androidx.compose.ui.graphics.SolidColor(PrimaryPurple.copy(alpha = 0.5f))) else null,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                                Surface(shape = CircleShape, color = if (isSelected) PrimaryPurple else PillBg, modifier = Modifier.size(32.dp)) {
+                                    Box(contentAlignment = Alignment.Center) {
+                                        Icon(Icons.Default.CorporateFare, contentDescription = null, tint = if (isSelected) Color.White else TextMuted, modifier = Modifier.size(16.dp))
+                                    }
+                                }
+                                Text(text = dept, fontSize = 13.sp, fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium, color = if (isSelected) PrimaryPurple else TextDark)
+                            }
+                            if (isSelected) {
+                                Icon(Icons.Default.Check, contentDescription = null, tint = PrimaryPurple, modifier = Modifier.size(18.dp))
+                            }
+                        }
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -566,26 +862,39 @@ fun MyTasksTab(
     onTaskClick: (TaskItem) -> Unit,
     onProjectClick: (TaskChinhItem) -> Unit
 ) {
+    val str = AppStrings.of(LocalAppLanguage.current)
     val coroutineScope = rememberCoroutineScope()
+    var selectedScope by remember { mutableStateOf("PERSONAL") } // MẶC ĐỊNH LUÔN LÀ CÔNG VIỆC CÁ NHÂN
     var filterType by remember { mutableStateOf("today") } // "today", "upcoming", "overdue", "all"
     var isSearchOpen by remember { mutableStateOf(false) }
     var searchQuery by remember { mutableStateOf("") }
 
-    val myTasks = remember(tasks, userEmail) {
-        if (userEmail.isNotBlank()) {
-            tasks.filter { it.safeAssigneeEmail.lowercase().contains(userEmail) || it.safeAssigneeName.lowercase().contains("sang") }
-        } else tasks
+    val scopedTasks = remember(tasks, taskChinhList, userEmail, selectedScope) {
+        when (selectedScope) {
+            "PERSONAL" -> {
+                if (userEmail.isNotBlank()) {
+                    tasks.filter { it.safeAssigneeEmail.lowercase().contains(userEmail) || it.safeAssigneeName.lowercase().contains("sang") }
+                } else tasks
+            }
+            "ALL" -> tasks
+            else -> {
+                tasks.filter { t ->
+                    val parent = taskChinhList.find { it.id == t.taskChinhId }
+                    parent?.safePhongBan.equals(selectedScope, ignoreCase = true)
+                }
+            }
+        }
     }
 
     val today = LocalDate.now()
-    val overdueCount = remember(myTasks, today) { myTasks.count { it.isOverdue(today) } }
+    val overdueCount = remember(scopedTasks, today) { scopedTasks.count { it.isOverdue(today) } }
 
-    val displayTasks = remember(myTasks, filterType, searchQuery, today) {
+    val displayTasks = remember(scopedTasks, filterType, searchQuery, today) {
         val base = when (filterType) {
-            "today" -> myTasks.filter { it.isActiveOn(today) }
-            "upcoming" -> myTasks.filter { !it.isCompleted }
-            "overdue" -> myTasks.filter { it.isOverdue(today) }
-            else -> myTasks
+            "today" -> scopedTasks.filter { it.isActiveOn(today) }
+            "upcoming" -> scopedTasks.filter { !it.isCompleted }
+            "overdue" -> scopedTasks.filter { it.isOverdue(today) }
+            else -> scopedTasks
         }
         if (searchQuery.isNotBlank()) {
             val q = searchQuery.trim().lowercase()
@@ -597,9 +906,15 @@ fun MyTasksTab(
         } else base
     }
 
-    val myProjects = remember(taskChinhList, userEmail) {
-        val list = taskChinhList.filter { it.safeResponsibleEmail.lowercase().contains(userEmail) || it.safeResponsiblePerson.lowercase().contains("sang") }
-        if (list.isNotEmpty()) list else taskChinhList.take(3)
+    val scopedProjects = remember(taskChinhList, userEmail, selectedScope) {
+        when (selectedScope) {
+            "PERSONAL" -> {
+                val list = taskChinhList.filter { it.safeResponsibleEmail.lowercase().contains(userEmail) || it.safeResponsiblePerson.lowercase().contains("sang") }
+                if (list.isNotEmpty()) list else taskChinhList.take(3)
+            }
+            "ALL" -> taskChinhList
+            else -> taskChinhList.filter { it.safePhongBan.equals(selectedScope, ignoreCase = true) }
+        }
     }
 
     LazyColumn(
@@ -622,7 +937,7 @@ fun MyTasksTab(
                     OutlinedTextField(
                         value = searchQuery,
                         onValueChange = { searchQuery = it },
-                        placeholder = { Text("Tìm việc, dự án...", fontSize = 13.sp) },
+                        placeholder = { Text(str.searchPlaceholder, fontSize = 13.sp) },
                         singleLine = true,
                         modifier = Modifier.weight(1f),
                         shape = RoundedCornerShape(12.dp),
@@ -632,7 +947,7 @@ fun MyTasksTab(
                         trailingIcon = {
                             if (searchQuery.isNotBlank()) {
                                 IconButton(onClick = { searchQuery = "" }) {
-                                    Icon(Icons.Default.Close, contentDescription = "Xóa", tint = TextMuted, modifier = Modifier.size(18.dp))
+                                    Icon(Icons.Default.Close, contentDescription = str.actionDelete, tint = TextMuted, modifier = Modifier.size(18.dp))
                                 }
                             }
                         }
@@ -642,7 +957,7 @@ fun MyTasksTab(
                         searchQuery = ""
                         isSearchOpen = false
                     }) {
-                        Text("Đóng", fontSize = 13.sp, color = PrimaryPurple, fontWeight = FontWeight.SemiBold)
+                        Text(str.actionClose, fontSize = 13.sp, color = PrimaryPurple, fontWeight = FontWeight.SemiBold)
                     }
                 }
             } else {
@@ -664,13 +979,13 @@ fun MyTasksTab(
                         Spacer(modifier = Modifier.width(12.dp))
                         Column {
                             Text(
-                                text = "Xin chào, Sang Nguyễn",
+                                text = "${str.greetingPrefix} Sang Nguyễn",
                                 fontSize = 17.sp,
                                 fontWeight = FontWeight.Bold,
                                 color = TextDark
                             )
                             Text(
-                                text = "Chào mừng trở lại SZ Task",
+                                text = str.greetingSub,
                                 fontSize = 11.sp,
                                 color = TextMuted
                             )
@@ -678,15 +993,23 @@ fun MyTasksTab(
                     }
 
                     IconButton(onClick = { isSearchOpen = true }) {
-                        Icon(Icons.Default.Search, contentDescription = "Tìm kiếm", tint = TextDark)
+                        Icon(Icons.Default.Search, contentDescription = str.searchPlaceholder, tint = TextDark)
                     }
                 }
             }
         }
 
+        // Thanh Bộ lọc Phạm vi & Phòng ban (Mặc định là bản thân / cá nhân)
+        item {
+            ScopeFilterBar(
+                selectedScope = selectedScope,
+                onSelectScope = { selectedScope = it }
+            )
+        }
+
         // Khối Thống Kê Tổng Quan Hôm Nay (Daily Overview)
         item {
-            val todayTasks = remember(myTasks, today) { myTasks.filter { it.isActiveOn(today) } }
+            val todayTasks = remember(scopedTasks, today) { scopedTasks.filter { it.isActiveOn(today) } }
             val doneToday = remember(todayTasks) { todayTasks.count { it.isCompleted } }
 
             Surface(
@@ -704,14 +1027,14 @@ fun MyTasksTab(
                 ) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.weight(1f)) {
                         Text(text = "${todayTasks.size}", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = PrimaryPurple)
-                        Text(text = "Hôm nay", fontSize = 11.sp, color = TextMuted)
+                        Text(text = str.statToday, fontSize = 11.sp, color = TextMuted)
                     }
 
                     Box(modifier = Modifier.width(1.dp).height(24.dp).background(CardBorderColor))
 
                     Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.weight(1f)) {
                         Text(text = "$doneToday/${todayTasks.size}", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = Color(0xFF16A34A))
-                        Text(text = "Đã xong", fontSize = 11.sp, color = TextMuted)
+                        Text(text = str.statDone, fontSize = 11.sp, color = TextMuted)
                     }
 
                     Box(modifier = Modifier.width(1.dp).height(24.dp).background(CardBorderColor))
@@ -723,7 +1046,7 @@ fun MyTasksTab(
                             fontWeight = FontWeight.Bold,
                             color = if (overdueCount > 0) Color(0xFFDC2626) else TextMuted
                         )
-                        Text(text = "Trễ hạn", fontSize = 11.sp, color = TextMuted)
+                        Text(text = str.statOverdue, fontSize = 11.sp, color = TextMuted)
                     }
                 }
             }
@@ -733,7 +1056,7 @@ fun MyTasksTab(
         item {
             Column {
                 Text(
-                    text = "Dự án phụ trách",
+                    text = str.sectionMyProjects,
                     fontSize = 15.sp,
                     fontWeight = FontWeight.Bold,
                     color = TextDark,
@@ -744,7 +1067,7 @@ fun MyTasksTab(
                     horizontalArrangement = Arrangement.spacedBy(12.dp),
                     modifier = Modifier.fillMaxWidth()
                 ) {
-                    items(myProjects) { proj ->
+                    items(scopedProjects) { proj ->
                         val pTasks = tasks.filter { it.taskChinhId == proj.id }
                         val displayProgress = proj.computedProgress(pTasks)
                         Card(
@@ -797,7 +1120,7 @@ fun MyTasksTab(
                                             modifier = Modifier.fillMaxWidth(),
                                             horizontalArrangement = Arrangement.SpaceBetween
                                         ) {
-                                            Text(text = "Tiến độ", fontSize = 10.sp, color = Color.White.copy(alpha = 0.8f))
+                                            Text(text = str.labelProgress, fontSize = 10.sp, color = Color.White.copy(alpha = 0.8f))
                                             Text(text = "$displayProgress%", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = Color.White)
                                         }
                                         Spacer(modifier = Modifier.height(4.dp))
@@ -825,13 +1148,13 @@ fun MyTasksTab(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                FilterTabPill("Hôm nay", filterType == "today") { filterType = "today" }
-                FilterTabPill("Cần làm", filterType == "upcoming") { filterType = "upcoming" }
+                FilterTabPill(str.filterToday, filterType == "today") { filterType = "today" }
+                FilterTabPill(str.filterUpcoming, filterType == "upcoming") { filterType = "upcoming" }
                 FilterTabPill(
-                    text = if (overdueCount > 0) "Trễ hạn ($overdueCount)" else "Trễ hạn",
+                    text = if (overdueCount > 0) "${str.filterOverdue} ($overdueCount)" else str.filterOverdue,
                     isSelected = filterType == "overdue"
                 ) { filterType = "overdue" }
-                FilterTabPill("Tất cả", filterType == "all") { filterType = "all" }
+                FilterTabPill(str.filterAll, filterType == "all") { filterType = "all" }
             }
         }
 
@@ -850,7 +1173,7 @@ fun MyTasksTab(
                             .padding(28.dp),
                         contentAlignment = Alignment.Center
                     ) {
-                        Text(text = "Không có công việc cá nhân trong danh mục này", fontSize = 13.sp, color = TextMuted)
+                        Text(text = str.emptyCategoryTasks, fontSize = 13.sp, color = TextMuted)
                     }
                 }
             }
@@ -881,35 +1204,44 @@ fun DepartmentTab(
     repository: TaskRepository,
     tasks: List<TaskItem>,
     taskChinhList: List<TaskChinhItem>,
+    userEmail: String = "",
     onProjectClick: (TaskChinhItem) -> Unit,
     onTaskClick: (TaskItem) -> Unit
 ) {
+    val str = AppStrings.of(LocalAppLanguage.current)
     val coroutineScope = rememberCoroutineScope()
-    var selectedDept by remember { mutableStateOf("Tất cả") }
-    var selectedType by remember { mutableStateOf("Tất cả") }
-    var selectedStatus by remember { mutableStateOf("Tất cả") }
+    val resolvedEmail = remember(userEmail) {
+        userEmail.ifBlank { repository.getSavedEmail() }.lowercase().trim()
+    }
+    var selectedScope by remember { mutableStateOf("PERSONAL") } // MẶC ĐỊNH LUÔN LÀ CÔNG VIỆC CÁ NHÂN
+    var selectedStatus by remember { mutableStateOf("ALL") }
     var searchQuery by remember { mutableStateOf("") }
 
-    val departments = listOf("Tất cả", "SeaZen Tech", "Điều Hành", "Tuyển Dụng", "Đào Tạo", "Marketing", "Hành Chính", "C&B")
-
-    val filteredProjects = remember(taskChinhList, tasks, selectedDept, selectedType, selectedStatus, searchQuery) {
+    val filteredProjects = remember(taskChinhList, tasks, selectedScope, selectedStatus, searchQuery, resolvedEmail) {
         taskChinhList.filter { p ->
-            val matchDept = (selectedDept == "Tất cả" || p.safePhongBan.equals(selectedDept, ignoreCase = true))
-            val matchType = (selectedType == "Tất cả" || p.safePhanLoaiTask.equals(selectedType, ignoreCase = true))
+            val matchScope = when (selectedScope) {
+                "PERSONAL" -> {
+                    p.safeResponsibleEmail.lowercase().contains(resolvedEmail) ||
+                    p.safeCreatorEmail.lowercase().contains(resolvedEmail) ||
+                    p.safeResponsiblePerson.lowercase().contains("sang")
+                }
+                "ALL" -> true
+                else -> p.safePhongBan.equals(selectedScope, ignoreCase = true)
+            }
             val pTasks = tasks.filter { it.taskChinhId == p.id }
             val pProg = p.computedProgress(pTasks)
             val isProjOverdue = p.isOverdue() && pProg < 100
             val matchStatus = when (selectedStatus) {
-                "Hoàn thành" -> pProg >= 100 || p.safeTrangThai.contains("Hoàn thành", ignoreCase = true)
-                "Đang làm" -> pProg < 100 && !isProjOverdue
-                "Trễ hạn" -> isProjOverdue
+                "DONE" -> pProg >= 100 || p.safeTrangThai.contains("Hoàn thành", ignoreCase = true)
+                "PROGRESS" -> pProg < 100 && !isProjOverdue
+                "OVERDUE" -> isProjOverdue
                 else -> true
             }
             val matchSearch = searchQuery.isBlank() ||
                     p.safeTitle.contains(searchQuery, ignoreCase = true) ||
                     p.safeResponsiblePerson.contains(searchQuery, ignoreCase = true) ||
                     p.safePhongBan.contains(searchQuery, ignoreCase = true)
-            matchDept && matchType && matchStatus && matchSearch
+            matchScope && matchStatus && matchSearch
         }
     }
 
@@ -924,13 +1256,13 @@ fun DepartmentTab(
         item {
             Column {
                 Text(
-                    text = "Phòng ban & Công ty",
+                    text = str.deptTabTitle,
                     fontSize = 18.sp,
                     fontWeight = FontWeight.Bold,
                     color = TextDark
                 )
                 Text(
-                    text = "Quản lý tiến độ công việc liên phòng ban trên SharePoint",
+                    text = str.deptTabSubtitle,
                     fontSize = 12.sp,
                     color = TextMuted
                 )
@@ -942,7 +1274,7 @@ fun DepartmentTab(
             OutlinedTextField(
                 value = searchQuery,
                 onValueChange = { searchQuery = it },
-                placeholder = { Text("Tìm kiếm dự án, phòng ban, người chủ trì...", fontSize = 13.sp, color = TextMuted) },
+                placeholder = { Text(str.searchDeptPlaceholder, fontSize = 13.sp, color = TextMuted) },
                 leadingIcon = { Icon(Icons.Default.Search, contentDescription = null, tint = TextMuted, modifier = Modifier.size(18.dp)) },
                 trailingIcon = {
                     if (searchQuery.isNotEmpty()) {
@@ -963,16 +1295,12 @@ fun DepartmentTab(
             )
         }
 
-        // Bộ lọc phòng ban (Horizontal Scroll)
+        // Bộ lọc phạm vi & phòng ban chuẩn hóa (Lướt ngang & Giao diện chuyên dụng)
         item {
-            LazyRow(
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                items(departments) { dept ->
-                    FilterTabPill(dept, selectedDept == dept) { selectedDept = dept }
-                }
-            }
+            ScopeFilterBar(
+                selectedScope = selectedScope,
+                onSelectScope = { selectedScope = it }
+            )
         }
 
         // Bộ lọc trạng thái
@@ -981,10 +1309,10 @@ fun DepartmentTab(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                FilterTabPill("Tất cả", selectedStatus == "Tất cả") { selectedStatus = "Tất cả" }
-                FilterTabPill("Đang làm", selectedStatus == "Đang làm") { selectedStatus = "Đang làm" }
-                FilterTabPill("Trễ hạn", selectedStatus == "Trễ hạn") { selectedStatus = "Trễ hạn" }
-                FilterTabPill("Đã xong", selectedStatus == "Hoàn thành") { selectedStatus = "Hoàn thành" }
+                FilterTabPill(str.filterAll, selectedStatus == "ALL") { selectedStatus = "ALL" }
+                FilterTabPill(str.tagInProgress, selectedStatus == "PROGRESS") { selectedStatus = "PROGRESS" }
+                FilterTabPill(str.tagOverdue, selectedStatus == "OVERDUE") { selectedStatus = "OVERDUE" }
+                FilterTabPill(str.statDone, selectedStatus == "DONE") { selectedStatus = "DONE" }
             }
         }
 
@@ -1003,7 +1331,7 @@ fun DepartmentTab(
                             .padding(28.dp),
                         contentAlignment = Alignment.Center
                     ) {
-                        Text(text = "Không tìm thấy công việc phù hợp với bộ lọc", fontSize = 13.sp, color = TextMuted)
+                        Text(text = str.emptyFilterProjects, fontSize = 13.sp, color = TextMuted)
                     }
                 }
             }
@@ -1040,6 +1368,8 @@ fun DepartmentProjectCard(
     onTaskClick: (TaskItem) -> Unit = {},
     onAddChildClick: () -> Unit = {}
 ) {
+    val lang = LocalAppLanguage.current
+    val str = AppStrings.of(lang)
     val displayProgress = project.computedProgress(childTasks)
     val isOverdue = project.isOverdue() && displayProgress < 100
 
@@ -1109,7 +1439,7 @@ fun DepartmentProjectCard(
                             color = Color(0xFFFEE2E2)
                         ) {
                             Text(
-                                text = "Trễ hạn",
+                                text = str.tagOverdue,
                                 fontSize = 10.sp,
                                 fontWeight = FontWeight.Bold,
                                 color = Color(0xFFDC2626),
@@ -1143,12 +1473,12 @@ fun DepartmentProjectCard(
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
                 Text(
-                    text = "Chủ trì: ${project.safeResponsiblePerson}",
+                    text = "${str.labelLead} ${project.safeResponsiblePerson}",
                     fontSize = 11.sp,
                     color = TextMuted
                 )
                 Text(
-                    text = CalendarUtils.formatDisplayRange(project.safeStartDate, project.safeEndDate),
+                    text = CalendarUtils.formatDisplayRange(project.safeStartDate, project.safeEndDate, lang),
                     fontSize = 11.sp,
                     color = TextMuted
                 )
@@ -1157,7 +1487,7 @@ fun DepartmentProjectCard(
             if (project.safeCreatorName.isNotBlank()) {
                 Spacer(modifier = Modifier.height(2.dp))
                 Text(
-                    text = "Giao việc: ${project.safeCreatorName}",
+                    text = "${str.labelAssignedBy}: ${project.safeCreatorName}",
                     fontSize = 10.sp,
                     color = TextMuted
                 )
@@ -1182,7 +1512,7 @@ fun DepartmentProjectCard(
                 Spacer(modifier = Modifier.height(8.dp))
 
                 Text(
-                    text = "Hạng mục chi tiết (${childTasks.count { it.isCompleted }}/${childTasks.size} xong):",
+                    text = "${str.sectionProjectSubtasks} (${childTasks.count { it.isCompleted }}/${childTasks.size} ${str.labelDoneSuffix}):",
                     fontSize = 11.sp,
                     fontWeight = FontWeight.SemiBold,
                     color = TextMuted
@@ -1232,7 +1562,7 @@ fun DepartmentProjectCard(
                                             color = Color(0xFFFEE2E2)
                                         ) {
                                             Text(
-                                                text = "Khẩn cấp",
+                                                text = str.tagUrgent,
                                                 fontSize = 9.sp,
                                                 fontWeight = FontWeight.Bold,
                                                 color = Color(0xFFDC2626),
@@ -1244,7 +1574,7 @@ fun DepartmentProjectCard(
                                 if (ct.safeAssigneeName.isNotBlank() || ct.safeEndDate.isNotBlank()) {
                                     Spacer(modifier = Modifier.height(2.dp))
                                     Text(
-                                        text = "${ct.safeAssigneeName} • ${CalendarUtils.formatDisplayRange(ct.safeStartDate, ct.safeEndDate)}",
+                                        text = "${ct.safeAssigneeName} • ${CalendarUtils.formatDisplayRange(ct.safeStartDate, ct.safeEndDate, lang)}",
                                         fontSize = 10.sp,
                                         color = TextMuted
                                     )
@@ -1262,7 +1592,7 @@ fun DepartmentProjectCard(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
-                    text = "${childTasks.size} công việc con",
+                    text = "${childTasks.size} ${str.labelSubtasks}",
                     fontSize = 11.sp,
                     color = TextMuted
                 )
@@ -1277,7 +1607,7 @@ fun DepartmentProjectCard(
                         horizontalArrangement = Arrangement.spacedBy(4.dp)
                     ) {
                         Icon(Icons.Default.Add, contentDescription = null, tint = PrimaryPurple, modifier = Modifier.size(12.dp))
-                        Text(text = "Thêm việc con", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = PrimaryPurple)
+                        Text(text = str.actionAddSubtask, fontSize = 11.sp, fontWeight = FontWeight.Bold, color = PrimaryPurple)
                     }
                 }
             }
@@ -1293,19 +1623,64 @@ fun CalendarTab(
     repository: TaskRepository,
     tasks: List<TaskItem>,
     taskChinhList: List<TaskChinhItem>,
+    userEmail: String = "",
     onAddClick: (LocalDate) -> Unit,
     onTaskClick: (TaskItem) -> Unit,
     onProjectClick: (TaskChinhItem) -> Unit = {}
 ) {
+    val lang = LocalAppLanguage.current
+    val str = AppStrings.of(lang)
+    val isVi = lang != "en"
     val coroutineScope = rememberCoroutineScope()
+    val resolvedEmail = remember(userEmail) {
+        userEmail.ifBlank { repository.getSavedEmail() }.lowercase().trim()
+    }
     var selectedDate by remember { mutableStateOf(LocalDate.now()) }
     var currentYearMonth by remember { mutableStateOf(YearMonth.now()) }
+    var selectedScope by remember { mutableStateOf("PERSONAL") } // MẶC ĐỊNH LUÔN LÀ CÔNG VIỆC CÁ NHÂN
+    var searchQuery by remember { mutableStateOf("") }
+    var isSearchOpen by remember { mutableStateOf(false) }
 
-    val dayTasks = remember(tasks, selectedDate) {
-        tasks.filter { it.isActiveOn(selectedDate) }
+    val dayProjects = remember(taskChinhList, tasks, selectedDate, selectedScope, searchQuery, resolvedEmail) {
+        taskChinhList.filter { p ->
+            val active = p.isActiveOn(selectedDate)
+            val matchScope = when (selectedScope) {
+                "PERSONAL" -> {
+                    p.safeResponsibleEmail.lowercase().contains(resolvedEmail) ||
+                    p.safeCreatorEmail.lowercase().contains(resolvedEmail) ||
+                    p.safeResponsiblePerson.lowercase().contains("sang")
+                }
+                "ALL" -> true
+                else -> p.safePhongBan.equals(selectedScope, ignoreCase = true)
+            }
+            val matchSearch = searchQuery.isBlank() ||
+                    p.safeTitle.contains(searchQuery, ignoreCase = true) ||
+                    p.safeResponsiblePerson.contains(searchQuery, ignoreCase = true) ||
+                    p.safePhongBan.contains(searchQuery, ignoreCase = true)
+            active && matchScope && matchSearch
+        }
     }
-    val dayProjects = remember(taskChinhList, selectedDate) {
-        taskChinhList.filter { it.isActiveOn(selectedDate) }
+
+    val dayTasks = remember(tasks, taskChinhList, selectedDate, selectedScope, searchQuery, resolvedEmail) {
+        tasks.filter { t ->
+            val active = t.isActiveOn(selectedDate)
+            val matchScope = when (selectedScope) {
+                "PERSONAL" -> {
+                    t.safeAssigneeEmail.lowercase().contains(resolvedEmail) ||
+                    t.safeAssigneeName.lowercase().contains("sang")
+                }
+                "ALL" -> true
+                else -> {
+                    val parent = taskChinhList.find { it.id == t.taskChinhId }
+                    parent?.safePhongBan.equals(selectedScope, ignoreCase = true)
+                }
+            }
+            val matchSearch = searchQuery.isBlank() ||
+                    t.safeTitle.contains(searchQuery, ignoreCase = true) ||
+                    t.safeTaskChinhTitle.contains(searchQuery, ignoreCase = true) ||
+                    t.safeAssigneeName.contains(searchQuery, ignoreCase = true)
+            active && matchScope && matchSearch
+        }
     }
 
     LazyColumn(
@@ -1316,7 +1691,7 @@ fun CalendarTab(
     ) {
         item { Spacer(modifier = Modifier.height(8.dp)) }
 
-        // Header chuyển tháng
+        // Header chuyển tháng & nút tìm kiếm
         item {
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -1325,19 +1700,26 @@ fun CalendarTab(
             ) {
                 Column {
                     Text(
-                        text = CalendarUtils.formatHeaderDate(selectedDate),
+                        text = CalendarUtils.formatHeaderDate(selectedDate, lang),
                         fontSize = 17.sp,
                         fontWeight = FontWeight.Bold,
                         color = TextDark
                     )
                     Text(
-                        text = CalendarUtils.formatMonthYear(currentYearMonth),
+                        text = CalendarUtils.formatMonthYear(currentYearMonth, lang),
                         fontSize = 12.sp,
                         color = TextMuted
                     )
                 }
 
-                Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                Row(horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.CenterVertically) {
+                    IconButton(onClick = { isSearchOpen = !isSearchOpen }) {
+                        Icon(
+                            imageVector = Icons.Default.Search,
+                            contentDescription = str.searchCalendarPlaceholder,
+                            tint = if (isSearchOpen || searchQuery.isNotBlank()) PrimaryPurple else TextDark
+                        )
+                    }
                     IconButton(onClick = { currentYearMonth = currentYearMonth.minusMonths(1) }) {
                         Icon(Icons.Default.ChevronLeft, contentDescription = null, tint = TextDark)
                     }
@@ -1354,6 +1736,44 @@ fun CalendarTab(
             }
         }
 
+        // Ô tìm kiếm cho trang lịch (nếu được mở)
+        if (isSearchOpen) {
+            item {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 2.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    OutlinedTextField(
+                        value = searchQuery,
+                        onValueChange = { searchQuery = it },
+                        placeholder = { Text(str.searchCalendarPlaceholder, fontSize = 13.sp) },
+                        singleLine = true,
+                        modifier = Modifier.weight(1f),
+                        shape = RoundedCornerShape(12.dp),
+                        leadingIcon = {
+                            Icon(Icons.Default.Search, contentDescription = null, tint = PrimaryPurple, modifier = Modifier.size(18.dp))
+                        },
+                        trailingIcon = {
+                            if (searchQuery.isNotBlank()) {
+                                IconButton(onClick = { searchQuery = "" }) {
+                                    Icon(Icons.Default.Close, contentDescription = str.actionDelete, tint = TextMuted, modifier = Modifier.size(16.dp))
+                                }
+                            }
+                        }
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    TextButton(onClick = {
+                        searchQuery = ""
+                        isSearchOpen = false
+                    }) {
+                        Text(str.actionClose, fontSize = 12.sp, color = PrimaryPurple, fontWeight = FontWeight.SemiBold)
+                    }
+                }
+            }
+        }
+
         // Lưới lịch tháng
         item {
             Card(
@@ -1363,7 +1783,7 @@ fun CalendarTab(
                 border = CardDefaults.outlinedCardBorder().copy(brush = androidx.compose.ui.graphics.SolidColor(CardBorderColor))
             ) {
                 Column(modifier = Modifier.padding(14.dp)) {
-                    val weekDays = listOf("T2", "T3", "T4", "T5", "T6", "T7", "CN")
+                    val weekDays = if (isVi) listOf("T2", "T3", "T4", "T5", "T6", "T7", "CN") else listOf("Mo", "Tu", "We", "Th", "Fr", "Sa", "Su")
                     Row(modifier = Modifier.fillMaxWidth()) {
                         weekDays.forEach { w ->
                             Text(
@@ -1397,8 +1817,27 @@ fun CalendarTab(
                                     if (dayDate != null) {
                                         val isSelected = (dayDate == selectedDate)
                                         val isToday = (dayDate == LocalDate.now())
-                                        val taskCount = remember(tasks, dayDate) { tasks.count { it.isActiveOn(dayDate) } }
-                                        val projectCount = remember(taskChinhList, dayDate) { taskChinhList.count { it.isActiveOn(dayDate) } }
+                                        val taskCount = remember(tasks, dayDate, selectedScope, resolvedEmail) {
+                                            tasks.filter { it.isActiveOn(dayDate) }.count { t ->
+                                                when (selectedScope) {
+                                                    "PERSONAL" -> t.safeAssigneeEmail.lowercase().contains(resolvedEmail) || t.safeAssigneeName.lowercase().contains("sang")
+                                                    "ALL" -> true
+                                                    else -> {
+                                                        val p = taskChinhList.find { it.id == t.taskChinhId }
+                                                        p?.safePhongBan.equals(selectedScope, ignoreCase = true)
+                                                    }
+                                                }
+                                            }
+                                        }
+                                        val projectCount = remember(taskChinhList, dayDate, selectedScope, resolvedEmail) {
+                                            taskChinhList.filter { it.isActiveOn(dayDate) }.count { p ->
+                                                when (selectedScope) {
+                                                    "PERSONAL" -> p.safeResponsibleEmail.lowercase().contains(resolvedEmail) || p.safeCreatorEmail.lowercase().contains(resolvedEmail) || p.safeResponsiblePerson.lowercase().contains("sang")
+                                                    "ALL" -> true
+                                                    else -> p.safePhongBan.equals(selectedScope, ignoreCase = true)
+                                                }
+                                            }
+                                        }
 
                                         Column(
                                             modifier = Modifier
@@ -1443,6 +1882,14 @@ fun CalendarTab(
             }
         }
 
+        // Thanh Bộ lọc Phạm vi & Phòng ban cho trang Lịch (Lướt ngang & Giao diện chuyên dụng)
+        item {
+            ScopeFilterBar(
+                selectedScope = selectedScope,
+                onSelectScope = { selectedScope = it }
+            )
+        }
+
         // Tiêu đề ngày được chọn kèm nút thêm nhanh
         item {
             Row(
@@ -1451,7 +1898,7 @@ fun CalendarTab(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
-                    text = "Lịch ngày ${selectedDate.dayOfMonth}/${selectedDate.monthValue}",
+                    text = "${str.labelScheduleForDay} ${selectedDate.dayOfMonth}/${selectedDate.monthValue}",
                     fontSize = 16.sp,
                     fontWeight = FontWeight.Bold,
                     color = TextDark
@@ -1474,7 +1921,7 @@ fun CalendarTab(
         if (dayProjects.isNotEmpty()) {
             item {
                 Text(
-                    text = "Dự án & Mục tiêu chính (${dayProjects.size}):",
+                    text = "${str.sectionDayProjects} (${dayProjects.size}):",
                     fontSize = 13.sp,
                     fontWeight = FontWeight.Bold,
                     color = TextDark
@@ -1538,12 +1985,12 @@ fun CalendarTab(
                             horizontalArrangement = Arrangement.SpaceBetween
                         ) {
                             Text(
-                                text = "Chủ trì: ${proj.safeResponsiblePerson}",
+                                text = "${str.labelLead} ${proj.safeResponsiblePerson}",
                                 fontSize = 11.sp,
                                 color = TextMuted
                             )
                             Text(
-                                text = CalendarUtils.formatDisplayRange(proj.safeStartDate, proj.safeEndDate),
+                                text = CalendarUtils.formatDisplayRange(proj.safeStartDate, proj.safeEndDate, lang),
                                 fontSize = 11.sp,
                                 color = TextMuted
                             )
@@ -1569,7 +2016,7 @@ fun CalendarTab(
         if (dayTasks.isNotEmpty()) {
             item {
                 Text(
-                    text = "Công việc chi tiết (${dayTasks.count { it.isCompleted }}/${dayTasks.size} xong):",
+                    text = "${str.sectionDaySubtasks} (${dayTasks.count { it.isCompleted }}/${dayTasks.size} ${str.labelDoneSuffix}):",
                     fontSize = 13.sp,
                     fontWeight = FontWeight.Bold,
                     color = TextDark
@@ -1597,7 +2044,11 @@ fun CalendarTab(
                     border = CardDefaults.outlinedCardBorder().copy(brush = androidx.compose.ui.graphics.SolidColor(CardBorderColor))
                 ) {
                     Box(modifier = Modifier.fillMaxWidth().padding(24.dp), contentAlignment = Alignment.Center) {
-                        Text(text = "Không có công việc hoặc dự án nào trong ngày này", fontSize = 13.sp, color = TextMuted)
+                        Text(
+                            text = if (searchQuery.isNotBlank()) str.emptySearchTitle else str.calendarNoTasks,
+                            fontSize = 13.sp,
+                            color = TextMuted
+                        )
                     }
                 }
             }
@@ -1614,15 +2065,14 @@ fun CalendarTab(
 fun SettingsTab(
     repository: TaskRepository,
     userEmail: String,
-    isDark: Boolean,
-    onToggleDark: (Boolean) -> Unit,
     appLang: String,
     onSelectLang: (String) -> Unit,
     onLogout: () -> Unit
 ) {
+    val str = AppStrings.of(LocalAppLanguage.current)
     val users by repository.users.collectAsState()
     val curUser = users.find { it.email.equals(userEmail, ignoreCase = true) }
-    val displayName = curUser?.name ?: if (userEmail.contains("@")) userEmail.substringBefore("@").replace(".", " ") else "Người dùng SeaZen"
+    val displayName = curUser?.name ?: if (userEmail.contains("@")) userEmail.substringBefore("@").replace(".", " ") else str.defaultUserName
     val displayDept = curUser?.phongBan ?: "SeaZen Tech"
     val isVi = appLang == "vi"
 
@@ -1636,7 +2086,7 @@ fun SettingsTab(
 
         item {
             Text(
-                text = if (isVi) "Cài đặt hệ thống" else "Settings",
+                text = str.settingsTitle,
                 fontSize = 18.sp,
                 fontWeight = FontWeight.Bold,
                 color = MaterialTheme.colorScheme.onBackground
@@ -1682,54 +2132,16 @@ fun SettingsTab(
                         Spacer(modifier = Modifier.height(4.dp))
                         Surface(
                             shape = RoundedCornerShape(4.dp),
-                            color = if (isDark) Color(0xFF334155) else AccentPurpleLight
+                            color = AccentPurpleLight
                         ) {
                             Text(
                                 text = displayDept,
                                 fontSize = 11.sp,
                                 fontWeight = FontWeight.Medium,
-                                color = if (isDark) Color(0xFFA5B4FC) else PrimaryPurple,
+                                color = PrimaryPurple,
                                 modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)
                             )
                         }
-                    }
-                }
-            }
-        }
-
-        // Cai dat Giao dien
-        item {
-            Card(
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(16.dp),
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                border = CardDefaults.outlinedCardBorder().copy(brush = androidx.compose.ui.graphics.SolidColor(MaterialTheme.colorScheme.outline))
-            ) {
-                Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text(
-                        text = if (isVi) "Giao diện" else "Appearance",
-                        fontSize = 14.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.onSurface
-                    )
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text(
-                            text = if (isVi) (if (isDark) "Chế độ tối (Dark mode)" else "Chế độ sáng (Light mode)") else (if (isDark) "Dark mode" else "Light mode"),
-                            fontSize = 13.sp,
-                            color = MaterialTheme.colorScheme.onSurface
-                        )
-                        Switch(
-                            checked = isDark,
-                            onCheckedChange = onToggleDark,
-                            colors = SwitchDefaults.colors(
-                                checkedThumbColor = Color.White,
-                                checkedTrackColor = PrimaryPurple
-                            )
-                        )
                     }
                 }
             }
@@ -1745,7 +2157,7 @@ fun SettingsTab(
             ) {
                 Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     Text(
-                        text = if (isVi) "Ngôn ngữ" else "Language",
+                        text = str.sectionLanguage,
                         fontSize = 14.sp,
                         fontWeight = FontWeight.Bold,
                         color = MaterialTheme.colorScheme.onSurface
@@ -1808,7 +2220,7 @@ fun SettingsTab(
             ) {
                 Icon(Icons.Default.ExitToApp, contentDescription = null, modifier = Modifier.size(18.dp))
                 Spacer(modifier = Modifier.width(8.dp))
-                Text(if (isVi) "Đăng xuất tài khoản" else "Log out")
+                Text(str.actionLogout)
             }
         }
 
@@ -1825,6 +2237,7 @@ fun FloatingAppNavBar(
     onTabSelect: (Int) -> Unit,
     onAddClick: () -> Unit
 ) {
+    val str = AppStrings.of(LocalAppLanguage.current)
     Box(
         modifier = Modifier
             .fillMaxWidth()
@@ -1846,7 +2259,7 @@ fun FloatingAppNavBar(
                 IconButton(onClick = { onTabSelect(0) }) {
                     Icon(
                         imageVector = Icons.Default.Person,
-                        contentDescription = "Cá nhân",
+                        contentDescription = str.navMyTasks,
                         tint = if (selectedTab == 0) PrimaryPurple else TextMuted
                     )
                 }
@@ -1855,7 +2268,7 @@ fun FloatingAppNavBar(
                 IconButton(onClick = { onTabSelect(1) }) {
                     Icon(
                         imageVector = Icons.Default.Apartment,
-                        contentDescription = "Phòng ban",
+                        contentDescription = str.navDepartments,
                         tint = if (selectedTab == 1) PrimaryPurple else TextMuted
                     )
                 }
@@ -1868,7 +2281,7 @@ fun FloatingAppNavBar(
                     modifier = Modifier.size(44.dp)
                 ) {
                     Box(contentAlignment = Alignment.Center) {
-                        Icon(Icons.Default.Add, contentDescription = "Tạo việc", tint = Color.White)
+                        Icon(Icons.Default.Add, contentDescription = str.actionAdd, tint = Color.White)
                     }
                 }
 
@@ -1876,7 +2289,7 @@ fun FloatingAppNavBar(
                 IconButton(onClick = { onTabSelect(2) }) {
                     Icon(
                         imageVector = Icons.Default.CalendarMonth,
-                        contentDescription = "Lịch",
+                        contentDescription = str.navCalendar,
                         tint = if (selectedTab == 2) PrimaryPurple else TextMuted
                     )
                 }
@@ -1885,7 +2298,7 @@ fun FloatingAppNavBar(
                 IconButton(onClick = { onTabSelect(3) }) {
                     Icon(
                         imageVector = Icons.Default.Settings,
-                        contentDescription = "Cài đặt",
+                        contentDescription = str.navSettings,
                         tint = if (selectedTab == 3) PrimaryPurple else TextMuted
                     )
                 }
@@ -1917,6 +2330,9 @@ fun PersonalTaskCard(
     onToggle: () -> Unit,
     onClick: () -> Unit = {}
 ) {
+    val lang = LocalAppLanguage.current
+    val str = AppStrings.of(lang)
+
     Card(
         modifier = Modifier
             .fillMaxWidth()
@@ -1975,13 +2391,13 @@ fun PersonalTaskCard(
 
                 Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
                     val isOverdue = task.isOverdue()
-                    val dateRange = CalendarUtils.formatDisplayRange(task.safeStartDate, task.safeEndDate)
+                    val dateRange = CalendarUtils.formatDisplayRange(task.safeStartDate, task.safeEndDate, lang)
                     Surface(
                         shape = RoundedCornerShape(6.dp),
                         color = if (isOverdue) Color(0xFFFEE2E2) else PillBg
                     ) {
                         Text(
-                            text = if (isOverdue) "Trễ hạn • $dateRange" else dateRange,
+                            text = if (isOverdue) "${str.tagOverdue} • $dateRange" else dateRange,
                             fontSize = 10.sp,
                             fontWeight = if (isOverdue) FontWeight.SemiBold else FontWeight.Normal,
                             color = if (isOverdue) Color(0xFFDC2626) else TextMuted,
@@ -1995,7 +2411,7 @@ fun PersonalTaskCard(
                             color = Color(0xFFFEE2E2)
                         ) {
                             Text(
-                                text = "Khẩn cấp",
+                                text = str.tagUrgent,
                                 fontSize = 9.sp,
                                 fontWeight = FontWeight.Bold,
                                 color = Color(0xFFDC2626),
@@ -2036,6 +2452,8 @@ fun TaskDetailBottomSheet(
     onToggle: () -> Unit,
     onOpenParentProject: ((Long) -> Unit)? = null
 ) {
+    val lang = LocalAppLanguage.current
+    val str = AppStrings.of(lang)
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val scrollState = rememberScrollState()
 
@@ -2069,7 +2487,7 @@ fun TaskDetailBottomSheet(
                     color = if (task.isCompleted) Color(0xFFDCFCE7) else AccentPurpleLight
                 ) {
                     Text(
-                        text = if (task.isCompleted) "Đã hoàn thành" else "Đang thực hiện",
+                        text = if (task.isCompleted) str.tagCompleted else str.statusInProgress,
                         fontSize = 11.sp,
                         fontWeight = FontWeight.Bold,
                         color = if (task.isCompleted) Color(0xFF16A34A) else PrimaryPurple,
@@ -2083,7 +2501,7 @@ fun TaskDetailBottomSheet(
                         color = Color(0xFFFEE2E2)
                     ) {
                         Text(
-                            text = "Trễ hạn",
+                            text = str.tagOverdue,
                             fontSize = 11.sp,
                             fontWeight = FontWeight.Bold,
                             color = Color(0xFFDC2626),
@@ -2120,36 +2538,36 @@ fun TaskDetailBottomSheet(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Column(modifier = Modifier.weight(1f)) {
-                            Text(text = "Thuộc dự án / mục tiêu chính:", fontSize = 11.sp, color = TextMuted)
+                            Text(text = str.labelBelongsToProject, fontSize = 11.sp, color = TextMuted)
                             Spacer(modifier = Modifier.height(2.dp))
                             Text(
-                                text = effectiveParentTitle.ifBlank { "Dự án #${effectiveParentId}" },
+                                text = effectiveParentTitle.ifBlank { "Project #${effectiveParentId}" },
                                 fontSize = 13.sp,
                                 fontWeight = FontWeight.SemiBold,
                                 color = PrimaryPurple
                             )
                         }
                         if (effectiveParentId != null && onOpenParentProject != null) {
-                            Icon(Icons.Default.ArrowForward, contentDescription = "Xem dự án", tint = PrimaryPurple, modifier = Modifier.size(16.dp))
+                            Icon(Icons.Default.ArrowForward, contentDescription = str.actionViewParentProject, tint = PrimaryPurple, modifier = Modifier.size(16.dp))
                         }
                     }
                 }
             }
 
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                DetailRow(label = "Thời hạn thực hiện", value = CalendarUtils.formatDisplayRange(task.safeStartDate, task.safeEndDate))
+                DetailRow(label = str.labelTimeRange, value = CalendarUtils.formatDisplayRange(task.safeStartDate, task.safeEndDate, lang))
                 if (task.safeAssigneeName.isNotBlank()) {
                     val assigneeText = if (task.safeAssigneeEmail.isNotBlank()) {
                         "${task.safeAssigneeName} (${task.safeAssigneeEmail})"
                     } else {
                         task.safeAssigneeName
                     }
-                    DetailRow(label = "Người thực hiện", value = assigneeText)
+                    DetailRow(label = str.labelAssignee, value = assigneeText)
                 }
                 if (effectiveDept.isNotBlank()) {
-                    DetailRow(label = "Phòng ban", value = effectiveDept)
+                    DetailRow(label = str.tagDepartment, value = effectiveDept)
                 }
-                DetailRow(label = "Độ ưu tiên", value = if (task.safePriority.lowercase() in listOf("urgent", "khẩn cấp", "high")) "Khẩn cấp" else "Bình thường")
+                DetailRow(label = str.labelPriority, value = if (task.safePriority.lowercase() in listOf("urgent", "khẩn cấp", "high")) str.tagUrgent else str.tagNormal)
             }
 
             if (task.safeGhiChu.isNotBlank()) {
@@ -2159,7 +2577,7 @@ fun TaskDetailBottomSheet(
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     Column(modifier = Modifier.padding(12.dp)) {
-                        Text(text = "Ghi chú / Chi tiết nội dung:", fontSize = 11.sp, color = TextMuted)
+                        Text(text = "${str.labelNotes}:", fontSize = 11.sp, color = TextMuted)
                         Spacer(modifier = Modifier.height(2.dp))
                         Text(text = task.safeGhiChu, fontSize = 13.sp, color = TextDark)
                     }
@@ -2175,7 +2593,7 @@ fun TaskDetailBottomSheet(
                 colors = ButtonDefaults.buttonColors(containerColor = if (task.isCompleted) TextMuted else PrimaryPurple)
             ) {
                 Text(
-                    text = if (task.isCompleted) "Đánh dấu chưa hoàn thành" else "Đánh dấu hoàn thành",
+                    text = if (task.isCompleted) str.actionMarkPending else str.actionMarkCompleted,
                     fontWeight = FontWeight.SemiBold
                 )
             }
@@ -2198,6 +2616,8 @@ fun AddChildTaskBottomSheet(
     onDismiss: () -> Unit,
     onAdd: (title: String, sDate: String, eDate: String, name: String, email: String) -> Unit
 ) {
+    val lang = LocalAppLanguage.current
+    val str = AppStrings.of(lang)
     val context = LocalContext.current
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val scrollState = rememberScrollState()
@@ -2236,14 +2656,14 @@ fun AddChildTaskBottomSheet(
             ) {
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
-                        text = "THÊM CÔNG VIỆC CON",
+                        text = str.titleAddSubtask,
                         fontSize = 16.sp,
                         fontWeight = FontWeight.Bold,
                         color = TextDark
                     )
                     if (projectTitle.isNotBlank()) {
                         Text(
-                            text = "Dự án: $projectTitle",
+                            text = "${str.labelParentProject}: $projectTitle",
                             fontSize = 12.sp,
                             color = PrimaryPurple,
                             maxLines = 1,
@@ -2252,15 +2672,15 @@ fun AddChildTaskBottomSheet(
                     }
                 }
                 IconButton(onClick = onDismiss) {
-                    Icon(Icons.Default.Close, contentDescription = "Đóng", tint = TextMuted)
+                    Icon(Icons.Default.Close, contentDescription = str.actionClose, tint = TextMuted)
                 }
             }
 
             OutlinedTextField(
                 value = title,
                 onValueChange = { title = it },
-                label = { Text("Công việc *", fontSize = 12.sp) },
-                placeholder = { Text("Nhập công việc chi tiết", fontSize = 12.sp, color = TextMuted) },
+                label = { Text("${str.labelTaskTitle} *", fontSize = 12.sp) },
+                placeholder = { Text(str.fieldTaskTitle, fontSize = 12.sp, color = TextMuted) },
                 modifier = Modifier.fillMaxWidth(),
                 singleLine = false,
                 colors = OutlinedTextFieldDefaults.colors(
@@ -2273,7 +2693,7 @@ fun AddChildTaskBottomSheet(
             )
 
             SingleUserSelector(
-                label = "Người phụ trách *",
+                label = "${str.labelAssignee} *",
                 selectedUser = selectedAssignee,
                 users = users,
                 onSelect = { selectedAssignee = it }
@@ -2286,7 +2706,7 @@ fun AddChildTaskBottomSheet(
                 OutlinedTextField(
                     value = startDate,
                     onValueChange = { startDate = it },
-                    label = { Text("Ngày bắt đầu", fontSize = 11.sp) },
+                    label = { Text(str.labelStartDate, fontSize = 11.sp) },
                     trailingIcon = {
                         IconButton(onClick = {
                             val init = parseLocalDate(startDate) ?: LocalDate.now()
@@ -2305,7 +2725,7 @@ fun AddChildTaskBottomSheet(
                 OutlinedTextField(
                     value = endDate,
                     onValueChange = { endDate = it },
-                    label = { Text("Ngày kết thúc", fontSize = 11.sp) },
+                    label = { Text(str.labelEndDate, fontSize = 11.sp) },
                     trailingIcon = {
                         IconButton(onClick = {
                             val init = parseLocalDate(endDate) ?: LocalDate.now()
@@ -2343,7 +2763,7 @@ fun AddChildTaskBottomSheet(
                 colors = ButtonDefaults.buttonColors(containerColor = PrimaryPurple),
                 enabled = title.isNotBlank()
             ) {
-                Text(text = "Thêm", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                Text(text = str.actionAdd, fontSize = 14.sp, fontWeight = FontWeight.Bold, color = Color.White)
             }
         }
     }
@@ -2362,6 +2782,8 @@ fun ProjectDetailBottomSheet(
     onRequestExtension: ((newDate: String, reason: String) -> Unit)? = null,
     onAddChildTask: (title: String, sDate: String, eDate: String, name: String, email: String) -> Unit
 ) {
+    val lang = LocalAppLanguage.current
+    val str = AppStrings.of(lang)
     val context = LocalContext.current
     val displayProgress = project.computedProgress(childTasks)
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
@@ -2426,7 +2848,7 @@ fun ProjectDetailBottomSheet(
                 }
 
                 Text(
-                    text = "Tiến độ: $displayProgress%",
+                    text = "${str.labelProgress}: $displayProgress%",
                     fontSize = 13.sp,
                     fontWeight = FontWeight.Bold,
                     color = PrimaryPurple
@@ -2442,20 +2864,20 @@ fun ProjectDetailBottomSheet(
             )
 
             Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                DetailRow(label = "Chủ trì dự án", value = "${project.safeResponsiblePerson} (${project.safeResponsibleEmail})")
-                DetailRow(label = "Thời gian", value = CalendarUtils.formatDisplayRange(project.safeStartDate, project.safeEndDate))
-                DetailRow(label = "Cấp độ phân loại", value = project.safePhanLoaiTask)
-                DetailRow(label = "Tính chất công việc", value = project.safePhanLoaiViec)
-                val liveStatus = if (childTasks.isNotEmpty() && childTasks.all { it.isCompleted }) "Hoàn thành" else project.safeTrangThai
-                DetailRow(label = "Trạng thái", value = liveStatus)
+                DetailRow(label = str.labelProjectLead, value = "${project.safeResponsiblePerson} (${project.safeResponsibleEmail})")
+                DetailRow(label = str.labelTimeRange, value = CalendarUtils.formatDisplayRange(project.safeStartDate, project.safeEndDate, lang))
+                DetailRow(label = str.labelClassification, value = project.safePhanLoaiTask)
+                DetailRow(label = str.labelJobNature, value = project.safePhanLoaiViec)
+                val liveStatus = if (childTasks.isNotEmpty() && childTasks.all { it.isCompleted }) str.tagCompleted else project.safeTrangThai
+                DetailRow(label = str.labelStatus, value = liveStatus)
                 if (project.safeCreatorName.isNotBlank()) {
-                    DetailRow(label = "Người giao việc", value = "${project.safeCreatorName} (${project.safeCreatorEmail})")
+                    DetailRow(label = str.labelAssignedBy, value = "${project.safeCreatorName} (${project.safeCreatorEmail})")
                 }
                 if (project.safeCcName.isNotBlank()) {
-                    DetailRow(label = "Người nhận TB (CC)", value = "${project.safeCcName} (${project.safeCcEmail})")
+                    DetailRow(label = str.labelCc, value = "${project.safeCcName} (${project.safeCcEmail})")
                 }
                 if (project.safeNewEndDate.isNotBlank()) {
-                    DetailRow(label = "Gia hạn mới", value = "${project.safeNewEndDate} (${project.safeExtReason})")
+                    DetailRow(label = str.labelNewDeadline, value = "${project.safeNewEndDate} (${project.safeExtReason})")
                 }
             }
 
@@ -2466,7 +2888,7 @@ fun ProjectDetailBottomSheet(
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     Column(modifier = Modifier.padding(12.dp)) {
-                        Text(text = "Ghi chú / Mục tiêu dự án:", fontSize = 11.sp, color = TextMuted)
+                        Text(text = "${str.labelNotes}:", fontSize = 11.sp, color = TextMuted)
                         Spacer(modifier = Modifier.height(2.dp))
                         Text(text = project.safeGhiChu, fontSize = 13.sp, color = TextDark)
                     }
@@ -2498,13 +2920,13 @@ fun ProjectDetailBottomSheet(
                     ) {
                         Column(modifier = Modifier.weight(1f)) {
                             Text(
-                                text = "Yêu cầu dời hạn: ${project.safeTrangThaiDuyetHan.ifBlank { "Chờ duyệt" }}",
+                                text = "${str.labelExtensionRequest} ${project.safeTrangThaiDuyetHan.ifBlank { str.statusPendingApproval }}",
                                 fontSize = 12.sp,
                                 fontWeight = FontWeight.Bold,
                                 color = Color(0xFF92400E)
                             )
                             Text(
-                                text = "Hạn mới: ${project.safeNewEndDate} • Lý do: ${project.safeExtReason.ifBlank { "Không có lý do" }}",
+                                text = "${str.labelDue} ${project.safeNewEndDate} • ${str.labelReason} ${project.safeExtReason.ifBlank { str.labelNoReason }}",
                                 fontSize = 11.sp,
                                 color = Color(0xFFB45309)
                             )
@@ -2520,7 +2942,7 @@ fun ProjectDetailBottomSheet(
                 ) {
                     Icon(Icons.Default.Schedule, contentDescription = null, modifier = Modifier.size(16.dp))
                     Spacer(modifier = Modifier.width(6.dp))
-                    Text(text = "Đăng ký dời hạn công việc", fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                    Text(text = str.actionExtendDeadline, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
                 }
             }
 
@@ -2531,7 +2953,7 @@ fun ProjectDetailBottomSheet(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
-                    text = "Công việc chi tiết (${childTasks.count { it.isCompleted }}/${childTasks.size} xong):",
+                    text = "${str.sectionProjectSubtasks} (${childTasks.count { it.isCompleted }}/${childTasks.size} ${str.labelDoneSuffix}):",
                     fontSize = 13.sp,
                     fontWeight = FontWeight.Bold,
                     color = TextDark
@@ -2554,7 +2976,7 @@ fun ProjectDetailBottomSheet(
                             modifier = Modifier.size(14.dp)
                         )
                         Text(
-                            text = "Thêm việc con",
+                            text = str.actionAddSubtask,
                             fontSize = 11.sp,
                             fontWeight = FontWeight.Bold,
                             color = PrimaryPurple
@@ -2567,18 +2989,18 @@ fun ProjectDetailBottomSheet(
             if (showExtensionDialog) {
                 AlertDialog(
                     onDismissRequest = { showExtensionDialog = false },
-                    title = { Text("Đăng ký dời hạn dự án", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = TextDark) },
+                    title = { Text(str.actionExtendDeadline, fontSize = 16.sp, fontWeight = FontWeight.Bold, color = TextDark) },
                     text = {
                         Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                             Text(
-                                text = "Thời hạn hiện tại: ${project.safeEndDate.ifBlank { "Chưa xác định" }}",
+                                text = "${str.labelDue} ${project.safeEndDate.ifBlank { "--" }}",
                                 fontSize = 12.sp,
                                 color = TextMuted
                             )
                             OutlinedTextField(
                                 value = extNewDate,
                                 onValueChange = { extNewDate = it },
-                                label = { Text("Hạn mới đề xuất (YYYY-MM-DD) *", fontSize = 11.sp) },
+                                label = { Text("${str.labelNewDeadline} (YYYY-MM-DD) *", fontSize = 11.sp) },
                                 trailingIcon = {
                                     IconButton(onClick = {
                                         val init = parseLocalDate(extNewDate) ?: LocalDate.now().plusDays(3)
@@ -2596,7 +3018,7 @@ fun ProjectDetailBottomSheet(
                             OutlinedTextField(
                                 value = extReason,
                                 onValueChange = { extReason = it },
-                                label = { Text("Lý do xin dời hạn *", fontSize = 11.sp) },
+                                label = { Text("${str.labelReason} *", fontSize = 11.sp) },
                                 modifier = Modifier.fillMaxWidth(),
                                 minLines = 2,
                                 shape = RoundedCornerShape(8.dp)
@@ -2615,12 +3037,12 @@ fun ProjectDetailBottomSheet(
                             colors = ButtonDefaults.buttonColors(containerColor = PrimaryPurple),
                             shape = RoundedCornerShape(8.dp)
                         ) {
-                            Text("Gửi yêu cầu", color = Color.White, fontWeight = FontWeight.Bold)
+                            Text(str.actionConfirm, color = Color.White, fontWeight = FontWeight.Bold)
                         }
                     },
                     dismissButton = {
                         TextButton(onClick = { showExtensionDialog = false }) {
-                            Text("Hủy", color = TextMuted)
+                            Text(str.actionCancel, color = TextMuted)
                         }
                     },
                     containerColor = Color.White,
@@ -2688,18 +3110,18 @@ fun ProjectDetailBottomSheet(
                                             color = Color(0xFFFEE2E2)
                                         ) {
                                             Text(
-                                                text = "Khẩn cấp",
+                                                text = str.tagUrgent,
                                                 fontSize = 9.sp,
                                                 fontWeight = FontWeight.Bold,
                                                 color = Color(0xFFDC2626),
-                                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                                modifier = Modifier.padding(horizontal = 5.dp, vertical = 2.dp)
                                             )
                                         }
                                     }
                                 }
                                 if (ct.safeAssigneeName.isNotBlank() || ct.safeEndDate.isNotBlank()) {
                                     Text(
-                                        text = "${ct.safeAssigneeName} • ${CalendarUtils.formatDisplayRange(ct.safeStartDate, ct.safeEndDate)}",
+                                        text = "${ct.safeAssigneeName} • ${CalendarUtils.formatDisplayRange(ct.safeStartDate, ct.safeEndDate, lang)}",
                                         fontSize = 10.sp,
                                         color = TextMuted
                                     )
@@ -2719,7 +3141,7 @@ fun ProjectDetailBottomSheet(
                 }
             } else {
                 Text(
-                    text = "Chưa có công việc con nào. Bấm 'Thêm việc con' ở trên để thêm hạng mục.",
+                    text = str.calendarNoTasks,
                     fontSize = 12.sp,
                     color = TextMuted
                 )
@@ -2790,6 +3212,8 @@ fun CreateTaskBottomSheet(
     ) -> Unit
 ) {
     val context = LocalContext.current
+    val lang = LocalAppLanguage.current
+    val str = AppStrings.of(lang)
     val defaultDateStr = selectedDate.toString()
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val scrollState = rememberScrollState()
@@ -2895,13 +3319,13 @@ fun CreateTaskBottomSheet(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
-                    text = if (isChildTaskMode) "THÊM CÔNG VIỆC CON" else "THÊM CÔNG VIỆC CHÍNH",
+                    text = if (isChildTaskMode) str.titleAddSubtask else str.titleAddMainProject,
                     fontSize = 16.sp,
                     fontWeight = FontWeight.Bold,
                     color = TextDark
                 )
                 IconButton(onClick = onDismiss) {
-                    Icon(Icons.Default.Close, contentDescription = "Đóng", tint = TextMuted)
+                    Icon(Icons.Default.Close, contentDescription = str.actionClose, tint = TextMuted)
                 }
             }
 
@@ -2923,7 +3347,7 @@ fun CreateTaskBottomSheet(
                     contentAlignment = Alignment.Center
                 ) {
                     Text(
-                        text = "Công việc chính",
+                        text = str.tabMainProject,
                         fontSize = 12.sp,
                         fontWeight = if (!isChildTaskMode) FontWeight.Bold else FontWeight.Normal,
                         color = if (!isChildTaskMode) PrimaryPurple else TextMuted
@@ -2940,7 +3364,7 @@ fun CreateTaskBottomSheet(
                     contentAlignment = Alignment.Center
                 ) {
                     Text(
-                        text = "Công việc con",
+                        text = str.tabSubTask,
                         fontSize = 12.sp,
                         fontWeight = if (isChildTaskMode) FontWeight.Bold else FontWeight.Normal,
                         color = if (isChildTaskMode) PrimaryPurple else TextMuted
@@ -2949,9 +3373,9 @@ fun CreateTaskBottomSheet(
             }
 
             if (isChildTaskMode) {
-                // CHẾ ĐỘ THÊM CÔNG VIỆC CON (Chuẩn PowerApp: 4 trường + Chọn Task chính)
+                // CHẾ ĐỘ THÊM CÔNG VIỆC CON
                 Column {
-                    Text(text = "Thuộc công việc chính nào *", fontSize = 12.sp, color = TextMuted)
+                    Text(text = str.labelBelongsToMainTask, fontSize = 12.sp, color = TextMuted)
                     Spacer(modifier = Modifier.height(4.dp))
                     Box(modifier = Modifier.fillMaxWidth()) {
                         OutlinedCard(
@@ -2965,7 +3389,7 @@ fun CreateTaskBottomSheet(
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
                                 Text(
-                                    text = if (selectedTaskChinhTitle.isNotBlank()) selectedTaskChinhTitle else "Chọn công việc chính",
+                                    text = if (selectedTaskChinhTitle.isNotBlank()) selectedTaskChinhTitle else str.placeholderSelectParentProject,
                                     fontSize = 13.sp,
                                     color = TextDark,
                                     maxLines = 1,
@@ -2996,15 +3420,15 @@ fun CreateTaskBottomSheet(
                 OutlinedTextField(
                     value = title,
                     onValueChange = { title = it },
-                    label = { Text("Công việc *", fontSize = 12.sp) },
-                    placeholder = { Text("Nhập công việc chi tiết", fontSize = 12.sp, color = TextMuted) },
+                    label = { Text("${str.fieldTaskTitle} *", fontSize = 12.sp) },
+                    placeholder = { Text(str.placeholderDetailTask, fontSize = 12.sp, color = TextMuted) },
                     modifier = Modifier.fillMaxWidth(),
                     singleLine = false,
                     shape = RoundedCornerShape(8.dp)
                 )
 
                 SingleUserSelector(
-                    label = "Người phụ trách *",
+                    label = "${str.fieldAssignee} *",
                     selectedUser = selectedChildAssignee,
                     users = users,
                     onSelect = { selectedChildAssignee = it }
@@ -3014,7 +3438,7 @@ fun CreateTaskBottomSheet(
                     OutlinedTextField(
                         value = startDate,
                         onValueChange = { startDate = it },
-                        label = { Text("Ngày bắt đầu", fontSize = 11.sp) },
+                        label = { Text(str.labelStartDate, fontSize = 11.sp) },
                         trailingIcon = {
                             IconButton(onClick = {
                                 val init = parseLocalDate(startDate) ?: LocalDate.now()
@@ -3032,7 +3456,7 @@ fun CreateTaskBottomSheet(
                     OutlinedTextField(
                         value = endDate,
                         onValueChange = { endDate = it },
-                        label = { Text("Ngày kết thúc", fontSize = 11.sp) },
+                        label = { Text(str.labelEndDate, fontSize = 11.sp) },
                         trailingIcon = {
                             IconButton(onClick = {
                                 val init = parseLocalDate(endDate) ?: LocalDate.now()
@@ -3070,7 +3494,7 @@ fun CreateTaskBottomSheet(
                     colors = ButtonDefaults.buttonColors(containerColor = PrimaryPurple),
                     enabled = title.isNotBlank()
                 ) {
-                    Text(text = "Thêm", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                    Text(text = str.actionCreate, fontSize = 14.sp, fontWeight = FontWeight.Bold, color = Color.White)
                 }
             } else {
                 // CHẾ ĐỘ THÊM CÔNG VIỆC CHÍNH (Chuẩn PowerApp: 8 trường chuẩn xác)
@@ -3078,7 +3502,7 @@ fun CreateTaskBottomSheet(
                 OutlinedTextField(
                     value = title,
                     onValueChange = { title = it },
-                    label = { Text("Tên công việc *", fontSize = 12.sp) },
+                    label = { Text("${str.fieldTaskTitle} *", fontSize = 12.sp) },
                     modifier = Modifier.fillMaxWidth(),
                     singleLine = false,
                     shape = RoundedCornerShape(8.dp)
@@ -3097,7 +3521,7 @@ fun CreateTaskBottomSheet(
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Column {
-                                Text(text = "Cấp giao việc *", fontSize = 11.sp, color = TextMuted)
+                                Text(text = "${str.labelClassification} *", fontSize = 11.sp, color = TextMuted)
                                 Text(text = selectedPhanLoaiTask, fontSize = 13.sp, fontWeight = FontWeight.Medium, color = TextDark)
                             }
                             Icon(Icons.Default.ArrowDropDown, contentDescription = null, tint = TextMuted)
@@ -3133,7 +3557,7 @@ fun CreateTaskBottomSheet(
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Column {
-                                Text(text = "Phân loại công việc *", fontSize = 11.sp, color = TextMuted)
+                                Text(text = "${str.labelJobNature} *", fontSize = 11.sp, color = TextMuted)
                                 Text(text = selectedPhanLoaiViec, fontSize = 13.sp, fontWeight = FontWeight.Medium, color = TextDark)
                             }
                             Icon(Icons.Default.ArrowDropDown, contentDescription = null, tint = TextMuted)
@@ -3158,7 +3582,7 @@ fun CreateTaskBottomSheet(
 
                 // Trường 4: Người phụ trách *
                 SingleUserSelector(
-                    label = "Người phụ trách *",
+                    label = "${str.labelProjectLead} *",
                     selectedUser = selectedResponsibleUser,
                     users = users,
                     onSelect = { user ->
@@ -3182,7 +3606,7 @@ fun CreateTaskBottomSheet(
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Column {
-                                Text(text = "Phòng ban *", fontSize = 11.sp, color = TextMuted)
+                                Text(text = "${str.tagDepartment} *", fontSize = 11.sp, color = TextMuted)
                                 Text(text = selectedDept, fontSize = 13.sp, fontWeight = FontWeight.Medium, color = TextDark)
                             }
                             Icon(Icons.Default.ArrowDropDown, contentDescription = null, tint = TextMuted)
@@ -3207,7 +3631,7 @@ fun CreateTaskBottomSheet(
 
                 // Trường 6: CC Email
                 MultiUserSelector(
-                    label = "CC Email",
+                    label = str.labelCc,
                     selectedUsers = selectedCcUsers,
                     users = users,
                     onAddUser = { if (!selectedCcUsers.any { u -> u.id == it.id }) selectedCcUsers = selectedCcUsers + it },
@@ -3219,7 +3643,7 @@ fun CreateTaskBottomSheet(
                     OutlinedTextField(
                         value = startDate,
                         onValueChange = { startDate = it },
-                        label = { Text("Ngày bắt đầu", fontSize = 11.sp) },
+                        label = { Text(str.labelStartDate, fontSize = 11.sp) },
                         trailingIcon = {
                             IconButton(onClick = {
                                 val init = parseLocalDate(startDate) ?: LocalDate.now()
@@ -3237,7 +3661,7 @@ fun CreateTaskBottomSheet(
                     OutlinedTextField(
                         value = endDate,
                         onValueChange = { endDate = it },
-                        label = { Text("Ngày kết thúc", fontSize = 11.sp) },
+                        label = { Text(str.labelEndDate, fontSize = 11.sp) },
                         trailingIcon = {
                             IconButton(onClick = {
                                 val init = parseLocalDate(endDate) ?: LocalDate.now()
@@ -3278,7 +3702,7 @@ fun CreateTaskBottomSheet(
                     colors = ButtonDefaults.buttonColors(containerColor = PrimaryPurple),
                     enabled = title.isNotBlank()
                 ) {
-                    Text(text = "Thêm", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                    Text(text = str.actionCreate, fontSize = 14.sp, fontWeight = FontWeight.Bold, color = Color.White)
                 }
             }
         }
@@ -3295,6 +3719,8 @@ fun LoginScreen(
     onLoginSuccess: () -> Unit
 ) {
     val context = LocalContext.current
+    val lang = LocalAppLanguage.current
+    val str = AppStrings.of(lang)
     val coroutineScope = rememberCoroutineScope()
 
     var email by remember { mutableStateOf(repository.getSavedEmail().ifBlank { "sang.nguyen@seazen.com.vn" }) }
@@ -3330,7 +3756,7 @@ fun LoginScreen(
                 Column(modifier = Modifier.fillMaxWidth().padding(22.dp)) {
                     Text(text = "SZ TASK", fontSize = 22.sp, fontWeight = FontWeight.Bold, color = PrimaryPurple)
                     Text(
-                        text = "Đăng nhập tài khoản Microsoft 365 để tự động lấy Token",
+                        text = str.loginSubtitle,
                         fontSize = 12.sp,
                         color = TextMuted,
                         modifier = Modifier.padding(top = 4.dp, bottom = 18.dp)
@@ -3339,7 +3765,7 @@ fun LoginScreen(
                     OutlinedTextField(
                         value = email,
                         onValueChange = { email = it },
-                        label = { Text("Tài khoản Microsoft (Email)") },
+                        label = { Text(str.fieldEmail) },
                         singleLine = true,
                         modifier = Modifier.fillMaxWidth(),
                         shape = RoundedCornerShape(10.dp),
@@ -3351,7 +3777,7 @@ fun LoginScreen(
                     OutlinedTextField(
                         value = password,
                         onValueChange = { password = it },
-                        label = { Text("Mật khẩu Microsoft") },
+                        label = { Text(str.fieldPassword) },
                         singleLine = true,
                         modifier = Modifier.fillMaxWidth(),
                         shape = RoundedCornerShape(10.dp),
@@ -3377,12 +3803,12 @@ fun LoginScreen(
                             border = CardDefaults.outlinedCardBorder().copy(brush = androidx.compose.ui.graphics.SolidColor(Color(0xFFBFDBFE)))
                         ) {
                             Column(modifier = Modifier.padding(14.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                                Text(text = "Xác thực 2 lớp Microsoft (MFA)", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color(0xFF1E40AF))
+                                Text(text = str.mfaTitle, fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color(0xFF1E40AF))
                                 Spacer(modifier = Modifier.height(6.dp))
                                 Text(text = deviceUserCode, fontSize = 22.sp, fontWeight = FontWeight.ExtraBold, color = PrimaryPurple, letterSpacing = 2.sp)
                                 Spacer(modifier = Modifier.height(6.dp))
                                 Text(
-                                    text = "Mã xác thực đã được sao chép. Bấm nút bên dưới để mở trang đăng nhập Microsoft.",
+                                    text = str.mfaDesc,
                                     fontSize = 11.sp,
                                     color = Color(0xFF3B82F6),
                                     textAlign = TextAlign.Center
@@ -3398,7 +3824,7 @@ fun LoginScreen(
                                     colors = ButtonDefaults.buttonColors(containerColor = PrimaryPurple),
                                     shape = RoundedCornerShape(8.dp)
                                 ) {
-                                    Text("Mở trang xác thực Microsoft", fontSize = 12.sp)
+                                    Text(str.btnOpenMfa, fontSize = 12.sp)
                                 }
                             }
                         }
@@ -3415,7 +3841,7 @@ fun LoginScreen(
                         onClick = {
                             errorMessage = ""
                             if (email.isBlank() || password.isBlank()) {
-                                errorMessage = "Vui lòng nhập đầy đủ Email và Mật khẩu."
+                                errorMessage = str.loginErrorBlank
                                 return@Button
                             }
                             isLoading = true
@@ -3425,7 +3851,7 @@ fun LoginScreen(
                                 val res = repository.loginMicrosoft(email, password)
                                 isLoading = false
                                 if (res.success) {
-                                    Toast.makeText(context, "Đăng nhập Microsoft thành công", Toast.LENGTH_SHORT).show()
+                                    Toast.makeText(context, if (lang == "en") "Microsoft sign-in successful" else "Đăng nhập Microsoft thành công", Toast.LENGTH_SHORT).show()
                                     onLoginSuccess()
                                 } else {
                                     if (res.isMfaRequired) {
@@ -3436,9 +3862,9 @@ fun LoginScreen(
                                             isWaitingDeviceLogin = true
                                             val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
                                             clipboard.setPrimaryClip(android.content.ClipData.newPlainText("user_code", devRes.userCode))
-                                            Toast.makeText(context, "Đã sao chép mã xác thực: ${devRes.userCode}", Toast.LENGTH_LONG).show()
+                                            Toast.makeText(context, if (lang == "en") "Verification code copied: ${devRes.userCode}" else "Đã sao chép mã xác thực: ${devRes.userCode}", Toast.LENGTH_LONG).show()
 
-                                            launch {
+                                             launch {
                                                 var polling = true
                                                 while (polling) {
                                                     kotlinx.coroutines.delay(devRes.interval * 1000)
@@ -3454,15 +3880,15 @@ fun LoginScreen(
                                                     } else if (pollRes.errorMessage?.contains("expired") == true) {
                                                         polling = false
                                                         isWaitingDeviceLogin = false
-                                                        errorMessage = "Mã xác thực đã hết hạn, vui lòng thử lại."
+                                                        errorMessage = if (lang == "en") "Verification code expired, please try again." else "Mã xác thực đã hết hạn, vui lòng thử lại."
                                                     }
                                                 }
                                             }
                                         } else {
-                                            errorMessage = "Không thể tạo mã xác thực Device Code."
+                                            errorMessage = if (lang == "en") "Unable to generate Device Code." else "Không thể tạo mã xác thực Device Code."
                                         }
                                     } else {
-                                        errorMessage = res.errorMessage ?: "Đăng nhập thất bại"
+                                        errorMessage = res.errorMessage ?: if (lang == "en") "Sign in failed" else "Đăng nhập thất bại"
                                     }
                                 }
                             }
@@ -3475,9 +3901,9 @@ fun LoginScreen(
                         if (isLoading) {
                             CircularProgressIndicator(modifier = Modifier.size(20.dp), color = Color.White, strokeWidth = 2.dp)
                             Spacer(modifier = Modifier.width(8.dp))
-                            Text("Đang kết nối Microsoft...")
+                            Text(str.btnConnectingMicrosoft)
                         } else {
-                            Text("ĐĂNG NHẬP MICROSOFT", fontWeight = FontWeight.SemiBold)
+                            Text(str.btnSignInMicrosoft, fontWeight = FontWeight.SemiBold)
                         }
                     }
 
@@ -3486,7 +3912,7 @@ fun LoginScreen(
                     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center) {
                         TextButton(onClick = { showManualToken = !showManualToken }) {
                             Text(
-                                text = if (showManualToken) "Ẩn mục dán Token thủ công" else "Hoặc dán Token trực tiếp",
+                                text = if (showManualToken) str.toggleManualTokenHide else str.toggleManualTokenShow,
                                 fontSize = 12.sp,
                                 color = TextMuted
                             )
@@ -3498,8 +3924,8 @@ fun LoginScreen(
                         OutlinedTextField(
                             value = tokenInput,
                             onValueChange = { tokenInput = it },
-                            label = { Text("SharePoint Bearer Token") },
-                            placeholder = { Text("Dán token...") },
+                            label = { Text(str.labelBearerToken) },
+                            placeholder = { Text(str.placeholderPasteToken) },
                             modifier = Modifier.fillMaxWidth(),
                             maxLines = 3,
                             shape = RoundedCornerShape(10.dp)
@@ -3519,7 +3945,7 @@ fun LoginScreen(
                                     }
                                 }
                             ) {
-                                Text("Dán từ bộ nhớ tạm", fontSize = 11.sp)
+                                Text(str.btnPasteClipboard, fontSize = 11.sp)
                             }
 
                             Button(
@@ -3536,7 +3962,7 @@ fun LoginScreen(
                                 shape = RoundedCornerShape(8.dp),
                                 colors = ButtonDefaults.buttonColors(containerColor = PrimaryDark)
                             ) {
-                                Text("Xác nhận Token", fontSize = 11.sp)
+                                Text(str.btnConfirmToken, fontSize = 11.sp)
                             }
                         }
                     }
@@ -3552,7 +3978,7 @@ fun LoginScreen(
                         modifier = Modifier.fillMaxWidth().height(48.dp),
                         shape = RoundedCornerShape(12.dp)
                     ) {
-                        Text("Dùng thử dữ liệu mẫu (Offline)", color = TextDark)
+                        Text(str.btnDemoOffline, color = TextDark)
                     }
                 }
             }

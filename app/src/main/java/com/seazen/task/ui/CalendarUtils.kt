@@ -7,31 +7,41 @@ import java.util.Locale
 
 object CalendarUtils {
 
-    fun formatHeaderDate(date: LocalDate): String {
+    fun formatHeaderDate(date: LocalDate, lang: String = "vi"): String {
         return try {
             val day = date.dayOfMonth
             val month = date.monthValue
             val year = date.year
+            val isVi = lang != "en"
             val dayOfWeek = when (date.dayOfWeek) {
-                DayOfWeek.MONDAY -> "Thứ Hai"
-                DayOfWeek.TUESDAY -> "Thứ Ba"
-                DayOfWeek.WEDNESDAY -> "Thứ Tư"
-                DayOfWeek.THURSDAY -> "Thứ Năm"
-                DayOfWeek.FRIDAY -> "Thứ Sáu"
-                DayOfWeek.SATURDAY -> "Thứ Bảy"
-                DayOfWeek.SUNDAY -> "Chủ Nhật"
+                DayOfWeek.MONDAY -> if (isVi) "Thứ Hai" else "Monday"
+                DayOfWeek.TUESDAY -> if (isVi) "Thứ Ba" else "Tuesday"
+                DayOfWeek.WEDNESDAY -> if (isVi) "Thứ Tư" else "Wednesday"
+                DayOfWeek.THURSDAY -> if (isVi) "Thứ Năm" else "Thursday"
+                DayOfWeek.FRIDAY -> if (isVi) "Thứ Sáu" else "Friday"
+                DayOfWeek.SATURDAY -> if (isVi) "Thứ Bảy" else "Saturday"
+                DayOfWeek.SUNDAY -> if (isVi) "Chủ Nhật" else "Sunday"
             }
-            "$day Th$month, $year  $dayOfWeek"
+            if (isVi) {
+                "$day Th$month, $year  $dayOfWeek"
+            } else {
+                "$dayOfWeek, $month/$day/$year"
+            }
         } catch (_: Exception) {
-            "Hôm nay"
+            if (lang == "en") "Today" else "Hôm nay"
         }
     }
 
-    fun formatMonthYear(yearMonth: YearMonth): String {
+    fun formatMonthYear(yearMonth: YearMonth, lang: String = "vi"): String {
         return try {
-            "Tháng ${yearMonth.monthValue}, ${yearMonth.year}"
+            if (lang == "en") {
+                val mName = yearMonth.month.name.lowercase().replaceFirstChar { it.uppercase() }
+                "$mName ${yearMonth.year}"
+            } else {
+                "Tháng ${yearMonth.monthValue}, ${yearMonth.year}"
+            }
         } catch (_: Exception) {
-            "Tháng này"
+            if (lang == "en") "This month" else "Tháng này"
         }
     }
 
@@ -43,14 +53,15 @@ object CalendarUtils {
         }
     }
 
-    fun formatDisplayRange(startDate: String?, endDate: String?): String {
+    fun formatDisplayRange(startDate: String?, endDate: String?, lang: String = "vi"): String {
         val s = cleanDate(startDate)
         val e = cleanDate(endDate)
+        val isVi = lang != "en"
         return when {
             s.isNotBlank() && e.isNotBlank() && s != e -> "$s - $e"
-            e.isNotBlank() -> "Hạn: $e"
-            s.isNotBlank() -> "Bắt đầu: $s"
-            else -> "Hôm nay"
+            e.isNotBlank() -> if (isVi) "Hạn: $e" else "Due: $e"
+            s.isNotBlank() -> if (isVi) "Bắt đầu: $s" else "Starts: $s"
+            else -> if (isVi) "Hôm nay" else "Today"
         }
     }
 

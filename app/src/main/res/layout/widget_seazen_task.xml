@@ -3,11 +3,11 @@
     android:id="@+id/widget_root"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="@drawable/widget_bg_card"
+    android:background="@drawable/widget_white_card_bg"
     android:orientation="vertical"
-    android:padding="12dp">
+    android:padding="14dp">
 
-    <!-- Header Row -->
+    <!-- Header Section -->
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
@@ -20,108 +20,344 @@
             android:layout_weight="1"
             android:orientation="vertical">
 
-            <LinearLayout
+            <TextView
+                android:id="@+id/widget_header_subtitle"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:gravity="center_vertical"
-                android:orientation="horizontal">
+                android:text="Tháng 10, 2026"
+                android:textColor="#64748B"
+                android:textSize="11sp" />
 
-                <TextView
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="SZ TASK"
-                    android:textColor="#818CF8"
-                    android:textSize="10sp"
-                    android:textStyle="bold" />
-
-                <TextView
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:paddingStart="4dp"
-                    android:paddingEnd="4dp"
-                    android:text="•"
-                    android:textColor="#475569"
-                    android:textSize="10sp" />
-
-                <TextView
-                    android:id="@+id/widget_header_date"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="Hôm nay"
-                    android:textColor="#E2E8F0"
-                    android:textSize="12sp"
-                    android:textStyle="bold" />
-            </LinearLayout>
-
-            <LinearLayout
+            <TextView
+                android:id="@+id/widget_header_greeting"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="3dp"
-                android:gravity="center_vertical"
-                android:orientation="horizontal">
-
-                <TextView
-                    android:id="@+id/widget_badge_today"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:background="@drawable/widget_btn_bg"
-                    android:paddingStart="6dp"
-                    android:paddingTop="2dp"
-                    android:paddingEnd="6dp"
-                    android:paddingBottom="2dp"
-                    android:text="0 việc"
-                    android:textColor="#94A3B8"
-                    android:textSize="10sp" />
-
-                <TextView
-                    android:id="@+id/widget_badge_overdue"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:layout_marginStart="6dp"
-                    android:background="@drawable/widget_badge_red"
-                    android:paddingStart="6dp"
-                    android:paddingTop="2dp"
-                    android:paddingEnd="6dp"
-                    android:paddingBottom="2dp"
-                    android:text="0 trễ hạn"
-                    android:textColor="#FEE2E2"
-                    android:textSize="10sp"
-                    android:textStyle="bold"
-                    android:visibility="gone" />
-            </LinearLayout>
+                android:layout_marginTop="1dp"
+                android:text="Kế hoạch công việc"
+                android:textColor="#0F172A"
+                android:textSize="16sp"
+                android:textStyle="bold" />
         </LinearLayout>
 
-        <!-- Action Buttons -->
-        <ImageButton
-            android:id="@+id/widget_btn_refresh"
-            android:layout_width="30dp"
-            android:layout_height="30dp"
-            android:background="@drawable/widget_btn_bg"
-            android:contentDescription="Đồng bộ"
-            android:padding="6dp"
-            android:scaleType="fitCenter"
-            android:src="@drawable/ic_widget_sync" />
+        <!-- Week Navigator & Refresh Buttons -->
+        <LinearLayout
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:gravity="center_vertical"
+            android:orientation="horizontal">
 
-        <ImageButton
-            android:id="@+id/widget_btn_add"
-            android:layout_width="30dp"
-            android:layout_height="30dp"
-            android:layout_marginStart="6dp"
-            android:background="@drawable/widget_btn_bg"
-            android:contentDescription="Tạo việc mới"
-            android:padding="6dp"
-            android:scaleType="fitCenter"
-            android:src="@drawable/ic_widget_add" />
+            <ImageButton
+                android:id="@+id/widget_btn_prev_week"
+                android:layout_width="28dp"
+                android:layout_height="28dp"
+                android:background="@drawable/widget_bottom_pill_bg"
+                android:contentDescription="Tuần trước"
+                android:padding="5dp"
+                android:scaleType="fitCenter"
+                android:src="@drawable/ic_widget_chevron_left" />
+
+            <ImageButton
+                android:id="@+id/widget_btn_next_week"
+                android:layout_width="28dp"
+                android:layout_height="28dp"
+                android:layout_marginStart="4dp"
+                android:background="@drawable/widget_bottom_pill_bg"
+                android:contentDescription="Tuần sau"
+                android:padding="5dp"
+                android:scaleType="fitCenter"
+                android:src="@drawable/ic_widget_chevron_right" />
+
+            <ImageButton
+                android:id="@+id/widget_btn_refresh"
+                android:layout_width="28dp"
+                android:layout_height="28dp"
+                android:layout_marginStart="6dp"
+                android:background="@drawable/widget_bottom_pill_bg"
+                android:contentDescription="Đồng bộ"
+                android:padding="5dp"
+                android:scaleType="fitCenter"
+                android:src="@drawable/ic_widget_sync" />
+        </LinearLayout>
+    </LinearLayout>
+
+    <!-- Calendar 7-Day Strip -->
+    <LinearLayout
+        android:id="@+id/widget_calendar_strip"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="10dp"
+        android:layout_marginBottom="6dp"
+        android:gravity="center_vertical"
+        android:orientation="horizontal"
+        android:weightSum="7">
+
+        <!-- Day 0 (Thứ 2) -->
+        <LinearLayout
+            android:id="@+id/widget_day_col_0"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:gravity="center"
+            android:orientation="vertical">
+
+            <TextView
+                android:id="@+id/widget_day_name_0"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="T2"
+                android:textColor="#94A3B8"
+                android:textSize="10sp" />
+
+            <TextView
+                android:id="@+id/widget_day_num_0"
+                android:layout_width="28dp"
+                android:layout_height="28dp"
+                android:layout_marginTop="2dp"
+                android:gravity="center"
+                android:text="19"
+                android:textColor="#0F172A"
+                android:textSize="12sp"
+                android:textStyle="bold" />
+
+            <ImageView
+                android:id="@+id/widget_day_dot_0"
+                android:layout_width="4dp"
+                android:layout_height="4dp"
+                android:layout_marginTop="2dp"
+                android:src="@drawable/widget_day_dot"
+                android:visibility="invisible" />
+        </LinearLayout>
+
+        <!-- Day 1 (Thứ 3) -->
+        <LinearLayout
+            android:id="@+id/widget_day_col_1"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:gravity="center"
+            android:orientation="vertical">
+
+            <TextView
+                android:id="@+id/widget_day_name_1"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="T3"
+                android:textColor="#94A3B8"
+                android:textSize="10sp" />
+
+            <TextView
+                android:id="@+id/widget_day_num_1"
+                android:layout_width="28dp"
+                android:layout_height="28dp"
+                android:layout_marginTop="2dp"
+                android:gravity="center"
+                android:text="20"
+                android:textColor="#0F172A"
+                android:textSize="12sp"
+                android:textStyle="bold" />
+
+            <ImageView
+                android:id="@+id/widget_day_dot_1"
+                android:layout_width="4dp"
+                android:layout_height="4dp"
+                android:layout_marginTop="2dp"
+                android:src="@drawable/widget_day_dot"
+                android:visibility="invisible" />
+        </LinearLayout>
+
+        <!-- Day 2 (Thứ 4) -->
+        <LinearLayout
+            android:id="@+id/widget_day_col_2"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:gravity="center"
+            android:orientation="vertical">
+
+            <TextView
+                android:id="@+id/widget_day_name_2"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="T4"
+                android:textColor="#94A3B8"
+                android:textSize="10sp" />
+
+            <TextView
+                android:id="@+id/widget_day_num_2"
+                android:layout_width="28dp"
+                android:layout_height="28dp"
+                android:layout_marginTop="2dp"
+                android:gravity="center"
+                android:text="21"
+                android:textColor="#0F172A"
+                android:textSize="12sp"
+                android:textStyle="bold" />
+
+            <ImageView
+                android:id="@+id/widget_day_dot_2"
+                android:layout_width="4dp"
+                android:layout_height="4dp"
+                android:layout_marginTop="2dp"
+                android:src="@drawable/widget_day_dot"
+                android:visibility="invisible" />
+        </LinearLayout>
+
+        <!-- Day 3 (Thứ 5) -->
+        <LinearLayout
+            android:id="@+id/widget_day_col_3"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:gravity="center"
+            android:orientation="vertical">
+
+            <TextView
+                android:id="@+id/widget_day_name_3"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="T5"
+                android:textColor="#94A3B8"
+                android:textSize="10sp" />
+
+            <TextView
+                android:id="@+id/widget_day_num_3"
+                android:layout_width="28dp"
+                android:layout_height="28dp"
+                android:layout_marginTop="2dp"
+                android:gravity="center"
+                android:text="22"
+                android:textColor="#0F172A"
+                android:textSize="12sp"
+                android:textStyle="bold" />
+
+            <ImageView
+                android:id="@+id/widget_day_dot_3"
+                android:layout_width="4dp"
+                android:layout_height="4dp"
+                android:layout_marginTop="2dp"
+                android:src="@drawable/widget_day_dot"
+                android:visibility="invisible" />
+        </LinearLayout>
+
+        <!-- Day 4 (Thứ 6) -->
+        <LinearLayout
+            android:id="@+id/widget_day_col_4"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:gravity="center"
+            android:orientation="vertical">
+
+            <TextView
+                android:id="@+id/widget_day_name_4"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="T6"
+                android:textColor="#94A3B8"
+                android:textSize="10sp" />
+
+            <TextView
+                android:id="@+id/widget_day_num_4"
+                android:layout_width="28dp"
+                android:layout_height="28dp"
+                android:layout_marginTop="2dp"
+                android:gravity="center"
+                android:text="23"
+                android:textColor="#0F172A"
+                android:textSize="12sp"
+                android:textStyle="bold" />
+
+            <ImageView
+                android:id="@+id/widget_day_dot_4"
+                android:layout_width="4dp"
+                android:layout_height="4dp"
+                android:layout_marginTop="2dp"
+                android:src="@drawable/widget_day_dot"
+                android:visibility="invisible" />
+        </LinearLayout>
+
+        <!-- Day 5 (Thứ 7) -->
+        <LinearLayout
+            android:id="@+id/widget_day_col_5"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:gravity="center"
+            android:orientation="vertical">
+
+            <TextView
+                android:id="@+id/widget_day_name_5"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="T7"
+                android:textColor="#94A3B8"
+                android:textSize="10sp" />
+
+            <TextView
+                android:id="@+id/widget_day_num_5"
+                android:layout_width="28dp"
+                android:layout_height="28dp"
+                android:layout_marginTop="2dp"
+                android:gravity="center"
+                android:text="24"
+                android:textColor="#0F172A"
+                android:textSize="12sp"
+                android:textStyle="bold" />
+
+            <ImageView
+                android:id="@+id/widget_day_dot_5"
+                android:layout_width="4dp"
+                android:layout_height="4dp"
+                android:layout_marginTop="2dp"
+                android:src="@drawable/widget_day_dot"
+                android:visibility="invisible" />
+        </LinearLayout>
+
+        <!-- Day 6 (Chủ Nhật) -->
+        <LinearLayout
+            android:id="@+id/widget_day_col_6"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:gravity="center"
+            android:orientation="vertical">
+
+            <TextView
+                android:id="@+id/widget_day_name_6"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="CN"
+                android:textColor="#94A3B8"
+                android:textSize="10sp" />
+
+            <TextView
+                android:id="@+id/widget_day_num_6"
+                android:layout_width="28dp"
+                android:layout_height="28dp"
+                android:layout_marginTop="2dp"
+                android:gravity="center"
+                android:text="25"
+                android:textColor="#0F172A"
+                android:textSize="12sp"
+                android:textStyle="bold" />
+
+            <ImageView
+                android:id="@+id/widget_day_dot_6"
+                android:layout_width="4dp"
+                android:layout_height="4dp"
+                android:layout_marginTop="2dp"
+                android:src="@drawable/widget_day_dot"
+                android:visibility="invisible" />
+        </LinearLayout>
     </LinearLayout>
 
     <FrameLayout
         android:layout_width="match_parent"
         android:layout_height="1dp"
-        android:layout_marginTop="8dp"
-        android:layout_marginBottom="8dp"
-        android:background="#1E293B" />
+        android:layout_marginBottom="6dp"
+        android:background="#F1F5F9" />
 
-    <!-- Content: ListView & Empty View -->
+    <!-- Content: Tasks on Selected Day -->
     <FrameLayout
         android:layout_width="match_parent"
         android:layout_height="0dp"
@@ -140,9 +376,74 @@
             android:layout_height="match_parent"
             android:gravity="center"
             android:lineSpacingExtra="3dp"
-            android:text="Đã hoàn thành tất cả công việc hôm nay\nNhấn + để thêm việc mới"
-            android:textColor="#64748B"
+            android:text="Không có công việc nào trong ngày này\nNhấn + để thêm nhiệm vụ mới"
+            android:textColor="#94A3B8"
             android:textSize="12sp"
             android:visibility="gone" />
     </FrameLayout>
+
+    <!-- Bottom Bar -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="8dp"
+        android:gravity="center_vertical"
+        android:orientation="horizontal">
+
+        <!-- Navigation Pill -->
+        <LinearLayout
+            android:id="@+id/widget_bottom_pill"
+            android:layout_width="0dp"
+            android:layout_height="38dp"
+            android:layout_marginEnd="8dp"
+            android:layout_weight="1"
+            android:background="@drawable/widget_bottom_pill_bg"
+            android:gravity="center_vertical"
+            android:orientation="horizontal"
+            android:paddingStart="6dp"
+            android:paddingEnd="6dp">
+
+            <TextView
+                android:id="@+id/widget_btn_today_reset"
+                android:layout_width="0dp"
+                android:layout_height="match_parent"
+                android:layout_weight="1"
+                android:gravity="center"
+                android:text="Hôm nay"
+                android:textColor="#5B4DF6"
+                android:textSize="11sp"
+                android:textStyle="bold" />
+
+            <TextView
+                android:id="@+id/widget_nav_calendar"
+                android:layout_width="0dp"
+                android:layout_height="match_parent"
+                android:layout_weight="1"
+                android:gravity="center"
+                android:text="Xem lịch"
+                android:textColor="#64748B"
+                android:textSize="11sp" />
+
+            <TextView
+                android:id="@+id/widget_nav_dept"
+                android:layout_width="0dp"
+                android:layout_height="match_parent"
+                android:layout_weight="1"
+                android:gravity="center"
+                android:text="Phòng ban"
+                android:textColor="#64748B"
+                android:textSize="11sp" />
+        </LinearLayout>
+
+        <!-- Dark Floating Add Button -->
+        <ImageButton
+            android:id="@+id/widget_btn_add"
+            android:layout_width="38dp"
+            android:layout_height="38dp"
+            android:background="@drawable/widget_btn_add_circle"
+            android:contentDescription="Thêm việc mới"
+            android:padding="8dp"
+            android:scaleType="fitCenter"
+            android:src="@drawable/ic_widget_add" />
+    </LinearLayout>
 </LinearLayout>

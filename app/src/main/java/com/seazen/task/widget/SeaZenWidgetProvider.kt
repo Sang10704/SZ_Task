@@ -6,18 +6,20 @@ import android.appwidget.AppWidgetProvider
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
+import android.graphics.Color
 import android.net.Uri
 import android.view.View
 import android.widget.RemoteViews
+import android.widget.Toast
 import com.seazen.task.R
 import com.seazen.task.data.TaskRepository
+import com.seazen.task.data.parseLocalDate
 import com.seazen.task.ui.MainActivity
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import java.time.DayOfWeek
 import java.time.LocalDate
-import java.util.Locale
 
 class SeaZenWidgetProvider : AppWidgetProvider() {
 
@@ -30,14 +32,24 @@ class SeaZenWidgetProvider : AppWidgetProvider() {
     override fun onReceive(context: Context, intent: Intent) {
         super.onReceive(context, intent)
         val action = intent.action ?: return
+        val prefs = context.getSharedPreferences("seazen_task_prefs", Context.MODE_PRIVATE)
 
         when (action) {
             ACTION_ITEM_CLICK -> {
                 val taskId = intent.getLongExtra(EXTRA_TASK_ID, -1L)
                 val actionType = intent.getStringExtra(EXTRA_ACTION_TYPE)
+                val isMine = intent.getBooleanExtra(EXTRA_IS_MINE, true)
+                val assignee = intent.getStringExtra(EXTRA_ASSIGNEE) ?: "nhân sự khác"
 
-                if (actionType == ACTION_TYPE_TOGGLE && taskId > 0L) {
-                    // Đánh dấu hoàn thành trực tiếp trên Widget
+                if (actionType == ACTION_TYPE_LOCKED || !isMine) {
+                    // Task của người khác: Chế độ chỉ xem, khóa sửa xóa
+                    Toast.makeText(
+                        context,
+                        "Chỉ xem: Công việc của $assignee (Bạn không có quyền sửa/xóa)",
+                        Toast.LENGTH_SHORT
+                    ).show()
+                } else if (actionType == ACTION_TYPE_TOGGLE && taskId > 0L) {
+                    // Task của mình: Đánh dấu hoàn thành trực tiếp trên Widget
                     CoroutineScope(Dispatchers.IO).launch {
                         val repository = TaskRepository(context.applicationContext)
                         repository.toggleTaskCompletion(taskId)
@@ -53,8 +65,30 @@ class SeaZenWidgetProvider : AppWidgetProvider() {
                 }
             }
 
+            ACTION_SELECT_DATE -> {
+                val dateStr = intent.getStringExtra(EXTRA_SELECTED_DATE)
+                if (!dateStr.isNullOrBlank()) {
+                    prefs.edit().putString("widget_selected_date", dateStr).apply()
+                    notifyAllWidgets(context)
+                }
+            }
+
+            ACTION_CHANGE_WEEK -> {
+                val delta = intent.getIntExtra(EXTRA_OFFSET_DELTA, 0)
+                val current = prefs.getInt("widget_week_offset", 0)
+                prefs.edit().putInt("widget_week_offset", current + delta).apply()
+                notifyAllWidgets(context)
+            }
+
+            ACTION_RESET_TODAY -> {
+                prefs.edit()
+                    .putString("widget_selected_date", LocalDate.now().toString())
+                    .putInt("widget_week_offset", 0)
+                    .apply()
+                notifyAllWidgets(context)
+            }
+
             ACTION_REFRESH_TODAY -> {
-                // Đồng bộ SharePoint ngầm từ Widget
                 CoroutineScope(Dispatchers.IO).launch {
                     val repository = TaskRepository(context.applicationContext)
                     repository.fetchAllFromSharePoint()
@@ -63,17 +97,20 @@ class SeaZenWidgetProvider : AppWidgetProvider() {
             }
 
             ACTION_OPEN_CREATE -> {
+                val selectedDateStr = prefs.getString("widget_selected_date", LocalDate.now().toString())
                 val mainIntent = Intent(context, MainActivity::class.java).apply {
                     flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP
                     putExtra("open_create_task", true)
+                    putExtra("target_create_date", selectedDateStr)
                 }
                 context.startActivity(mainIntent)
             }
 
-            ACTION_OPEN_TODAY -> {
+            ACTION_OPEN_TAB -> {
+                val targetTab = intent.getIntExtra("target_tab", 0)
                 val mainIntent = Intent(context, MainActivity::class.java).apply {
                     flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP
-                    putExtra("open_tab", 0)
+                    putExtra("open_tab", targetTab)
                 }
                 context.startActivity(mainIntent)
             }
@@ -82,49 +119,135 @@ class SeaZenWidgetProvider : AppWidgetProvider() {
 
     companion object {
         const val ACTION_ITEM_CLICK = "com.seazen.task.ACTION_WIDGET_TASK_ITEM_CLICK"
+        const val ACTION_SELECT_DATE = "com.seazen.task.ACTION_WIDGET_SELECT_DATE"
+        const val ACTION_CHANGE_WEEK = "com.seazen.task.ACTION_WIDGET_CHANGE_WEEK"
+        const val ACTION_RESET_TODAY = "com.seazen.task.ACTION_WIDGET_RESET_TODAY"
         const val ACTION_REFRESH_TODAY = "com.seazen.task.ACTION_WIDGET_REFRESH_TODAY"
         const val ACTION_OPEN_CREATE = "com.seazen.task.ACTION_WIDGET_OPEN_CREATE"
-        const val ACTION_OPEN_TODAY = "com.seazen.task.ACTION_WIDGET_OPEN_TODAY"
+        const val ACTION_OPEN_TAB = "com.seazen.task.ACTION_WIDGET_OPEN_TAB"
 
         const val EXTRA_TASK_ID = "extra_task_id"
         const val EXTRA_ACTION_TYPE = "extra_action_type"
+        const val EXTRA_IS_MINE = "extra_is_mine"
+        const val EXTRA_ASSIGNEE = "extra_assignee"
+        const val EXTRA_SELECTED_DATE = "extra_selected_date"
+        const val EXTRA_OFFSET_DELTA = "extra_offset_delta"
+
         const val ACTION_TYPE_TOGGLE = "toggle"
+        const val ACTION_TYPE_LOCKED = "locked"
         const val ACTION_TYPE_OPEN_DETAIL = "open_detail"
 
         fun updateAppWidget(context: Context, appWidgetManager: AppWidgetManager, appWidgetId: Int) {
             try {
                 val repository = TaskRepository(context)
+                val prefs = context.getSharedPreferences("seazen_task_prefs", Context.MODE_PRIVATE)
                 val allTasks = repository.tasks.value
-                val userEmail = repository.getSavedEmail().lowercase().trim()
-                val today = LocalDate.now()
 
-                val myTasks = if (userEmail.isNotBlank()) {
-                    allTasks.filter { task ->
-                        val email = task.safeAssigneeEmail.lowercase().trim()
-                        email.contains(userEmail) || task.safeAssigneeName.lowercase().contains("sang")
-                    }
-                } else allTasks
+                // 1. Xác định ngày được chọn và tuần hiển thị
+                val savedDateStr = prefs.getString("widget_selected_date", null)
+                val selectedDate = parseLocalDate(savedDateStr) ?: LocalDate.now()
+                val weekOffset = prefs.getInt("widget_week_offset", 0)
 
-                val overdueTasks = myTasks.filter { it.isOverdue(today) }
-                val pendingTodayTasks = myTasks.filter { !it.isCompleted && it.isActiveOn(today) }
-                val overdueCount = overdueTasks.size
-                val todayCount = pendingTodayTasks.size
+                val baseDate = LocalDate.now().plusWeeks(weekOffset.toLong())
+                val monday = baseDate.with(DayOfWeek.MONDAY)
+                val daysOfWeek = (0..6).map { monday.plusDays(it.toLong()) }
 
                 val views = RemoteViews(context.packageName, R.layout.widget_seazen_task)
 
-                // 1. Ngày header
-                views.setTextViewText(R.id.widget_header_date, formatVietnameseDate(today))
-
-                // 2. Badge đếm
-                views.setTextViewText(R.id.widget_badge_today, "$todayCount việc tồn")
-                if (overdueCount > 0) {
-                    views.setViewVisibility(R.id.widget_badge_overdue, View.VISIBLE)
-                    views.setTextViewText(R.id.widget_badge_overdue, "$overdueCount trễ hạn")
+                // 2. Tiêu đề và Tháng
+                views.setTextViewText(R.id.widget_header_subtitle, "Tháng ${selectedDate.monthValue}, ${selectedDate.year}")
+                val greeting = if (selectedDate == LocalDate.now()) {
+                    "Kế hoạch hôm nay"
                 } else {
-                    views.setViewVisibility(R.id.widget_badge_overdue, View.GONE)
+                    "Ngày ${selectedDate.dayOfMonth}/${selectedDate.monthValue}"
+                }
+                views.setTextViewText(R.id.widget_header_greeting, greeting)
+
+                // 3. Cập nhật 7 ngày trên thanh lịch (Calendar Strip)
+                val dayNameIds = intArrayOf(
+                    R.id.widget_day_name_0, R.id.widget_day_name_1, R.id.widget_day_name_2,
+                    R.id.widget_day_name_3, R.id.widget_day_name_4, R.id.widget_day_name_5, R.id.widget_day_name_6
+                )
+                val dayNumIds = intArrayOf(
+                    R.id.widget_day_num_0, R.id.widget_day_num_1, R.id.widget_day_num_2,
+                    R.id.widget_day_num_3, R.id.widget_day_num_4, R.id.widget_day_num_5, R.id.widget_day_num_6
+                )
+                val dayDotIds = intArrayOf(
+                    R.id.widget_day_dot_0, R.id.widget_day_dot_1, R.id.widget_day_dot_2,
+                    R.id.widget_day_dot_3, R.id.widget_day_dot_4, R.id.widget_day_dot_5, R.id.widget_day_dot_6
+                )
+                val dayNames = arrayOf("T2", "T3", "T4", "T5", "T6", "T7", "CN")
+
+                for (i in 0..6) {
+                    val date = daysOfWeek[i]
+                    views.setTextViewText(dayNameIds[i], dayNames[i])
+                    views.setTextViewText(dayNumIds[i], "${date.dayOfMonth}")
+
+                    // Định dạng highlight cho ngày được chọn và hôm nay
+                    val isSelected = date == selectedDate
+                    val isToday = date == LocalDate.now()
+
+                    when {
+                        isSelected -> {
+                            views.setInt(dayNumIds[i], "setBackgroundResource", R.drawable.widget_day_selected_bg)
+                            views.setTextColor(dayNumIds[i], Color.WHITE)
+                        }
+                        isToday -> {
+                            views.setInt(dayNumIds[i], "setBackgroundResource", R.drawable.widget_day_today_bg)
+                            views.setTextColor(dayNumIds[i], Color.parseColor("#5B4DF6"))
+                        }
+                        else -> {
+                            views.setInt(dayNumIds[i], "setBackgroundResource", android.R.color.transparent)
+                            views.setTextColor(dayNumIds[i], Color.parseColor("#0F172A"))
+                        }
+                    }
+
+                    // Chấm báo hiệu có công việc trong ngày
+                    val hasTasks = allTasks.any { it.isActiveOn(date) }
+                    views.setViewVisibility(dayDotIds[i], if (hasTasks) View.VISIBLE else View.INVISIBLE)
+
+                    // Sự kiện nhấn vào ngày để chọn
+                    val selectIntent = Intent(context, SeaZenWidgetProvider::class.java).apply {
+                        action = ACTION_SELECT_DATE
+                        putExtra(EXTRA_SELECTED_DATE, date.toString())
+                    }
+                    val selectPending = PendingIntent.getBroadcast(
+                        context,
+                        1100 + i,
+                        selectIntent,
+                        PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+                    )
+                    views.setOnClickPendingIntent(dayNumIds[i], selectPending)
                 }
 
-                // 3. Adapter cho ListView
+                // 4. Các nút điều hướng tuần & đồng bộ
+                val prevIntent = Intent(context, SeaZenWidgetProvider::class.java).apply {
+                    action = ACTION_CHANGE_WEEK
+                    putExtra(EXTRA_OFFSET_DELTA, -1)
+                }
+                views.setOnClickPendingIntent(
+                    R.id.widget_btn_prev_week,
+                    PendingIntent.getBroadcast(context, 1201, prevIntent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+                )
+
+                val nextIntent = Intent(context, SeaZenWidgetProvider::class.java).apply {
+                    action = ACTION_CHANGE_WEEK
+                    putExtra(EXTRA_OFFSET_DELTA, 1)
+                }
+                views.setOnClickPendingIntent(
+                    R.id.widget_btn_next_week,
+                    PendingIntent.getBroadcast(context, 1202, nextIntent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+                )
+
+                val refreshIntent = Intent(context, SeaZenWidgetProvider::class.java).apply {
+                    action = ACTION_REFRESH_TODAY
+                }
+                views.setOnClickPendingIntent(
+                    R.id.widget_btn_refresh,
+                    PendingIntent.getBroadcast(context, 1203, refreshIntent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+                )
+
+                // 5. Cấu hình Adapter danh sách công việc
                 val serviceIntent = Intent(context, SeaZenWidgetService::class.java).apply {
                     putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, appWidgetId)
                     data = Uri.parse(toUri(Intent.URI_INTENT_SCHEME))
@@ -132,53 +255,52 @@ class SeaZenWidgetProvider : AppWidgetProvider() {
                 views.setRemoteAdapter(R.id.widget_task_list, serviceIntent)
                 views.setEmptyView(R.id.widget_task_list, R.id.widget_empty_view)
 
-                // 4. PendingIntentTemplate cho ListView
+                // Template sự kiện danh sách
                 val itemClickIntent = Intent(context, SeaZenWidgetProvider::class.java).apply {
                     action = ACTION_ITEM_CLICK
                 }
-                val itemClickPendingIntent = PendingIntent.getBroadcast(
+                val itemClickPending = PendingIntent.getBroadcast(
                     context,
-                    1001,
+                    1204,
                     itemClickIntent,
                     PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_MUTABLE
                 )
-                views.setPendingIntentTemplate(R.id.widget_task_list, itemClickPendingIntent)
+                views.setPendingIntentTemplate(R.id.widget_task_list, itemClickPending)
 
-                // 5. Nút Làm mới (Sync)
-                val refreshIntent = Intent(context, SeaZenWidgetProvider::class.java).apply {
-                    action = ACTION_REFRESH_TODAY
+                // 6. Thanh điều hướng dưới đáy
+                val todayResetIntent = Intent(context, SeaZenWidgetProvider::class.java).apply {
+                    action = ACTION_RESET_TODAY
                 }
-                val refreshPendingIntent = PendingIntent.getBroadcast(
-                    context,
-                    1002,
-                    refreshIntent,
-                    PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+                views.setOnClickPendingIntent(
+                    R.id.widget_btn_today_reset,
+                    PendingIntent.getBroadcast(context, 1205, todayResetIntent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
                 )
-                views.setOnClickPendingIntent(R.id.widget_btn_refresh, refreshPendingIntent)
 
-                // 6. Nút Tạo việc mới (+)
+                val openCalendarIntent = Intent(context, SeaZenWidgetProvider::class.java).apply {
+                    action = ACTION_OPEN_TAB
+                    putExtra("target_tab", 2)
+                }
+                views.setOnClickPendingIntent(
+                    R.id.widget_nav_calendar,
+                    PendingIntent.getBroadcast(context, 1206, openCalendarIntent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+                )
+
+                val openDeptIntent = Intent(context, SeaZenWidgetProvider::class.java).apply {
+                    action = ACTION_OPEN_TAB
+                    putExtra("target_tab", 1)
+                }
+                views.setOnClickPendingIntent(
+                    R.id.widget_nav_dept,
+                    PendingIntent.getBroadcast(context, 1207, openDeptIntent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+                )
+
                 val addIntent = Intent(context, SeaZenWidgetProvider::class.java).apply {
                     action = ACTION_OPEN_CREATE
                 }
-                val addPendingIntent = PendingIntent.getBroadcast(
-                    context,
-                    1003,
-                    addIntent,
-                    PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+                views.setOnClickPendingIntent(
+                    R.id.widget_btn_add,
+                    PendingIntent.getBroadcast(context, 1208, addIntent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
                 )
-                views.setOnClickPendingIntent(R.id.widget_btn_add, addPendingIntent)
-
-                // 7. Nhấn vào header mở Tab 0 (Cá nhân)
-                val openTodayIntent = Intent(context, SeaZenWidgetProvider::class.java).apply {
-                    action = ACTION_OPEN_TODAY
-                }
-                val openTodayPendingIntent = PendingIntent.getBroadcast(
-                    context,
-                    1004,
-                    openTodayIntent,
-                    PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-                )
-                views.setOnClickPendingIntent(R.id.widget_header_date, openTodayPendingIntent)
 
                 appWidgetManager.updateAppWidget(appWidgetId, views)
                 appWidgetManager.notifyAppWidgetViewDataChanged(appWidgetId, R.id.widget_task_list)
@@ -194,19 +316,6 @@ class SeaZenWidgetProvider : AppWidgetProvider() {
                 }
                 appWidgetManager.notifyAppWidgetViewDataChanged(ids, R.id.widget_task_list)
             } catch (_: Exception) {}
-        }
-
-        private fun formatVietnameseDate(date: LocalDate): String {
-            val dayOfWeek = when (date.dayOfWeek) {
-                DayOfWeek.MONDAY -> "Thứ Hai"
-                DayOfWeek.TUESDAY -> "Thứ Ba"
-                DayOfWeek.WEDNESDAY -> "Thứ Tư"
-                DayOfWeek.THURSDAY -> "Thứ Năm"
-                DayOfWeek.FRIDAY -> "Thứ Sáu"
-                DayOfWeek.SATURDAY -> "Thứ Bảy"
-                DayOfWeek.SUNDAY -> "Chủ Nhật"
-            }
-            return "$dayOfWeek, ${String.format(Locale.getDefault(), "%02d/%02d", date.dayOfMonth, date.monthValue)}"
         }
     }
 }
