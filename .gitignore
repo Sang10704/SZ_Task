@@ -1,0 +1,28 @@
+*.iml
+.gradle
+local.properties
+/local.properties
+.idea/
+/.idea
+.kotlin/
+.DS_Store
+/build
+app/build/
+build/
+captures/
+.externalNativeBuild
+.cxx
+
+# Security & Private credentials
+current_token.txt
+new_prefs.xml
+*.token
+*.key
+*.jks
+*.keystore
+
+# Android installation packages
+*.apk
+*.aab
+SZ-Task-*.apk
+SeaZen-Task-*.apk

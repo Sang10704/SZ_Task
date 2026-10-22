@@ -1,0 +1,6 @@
+<resources>
+    <string name="app_name">SZ Task</string>
+    <string name="widget_name">SZ Task: Việc Hôm Nay</string>
+    <string name="widget_overview_name">SZ Task: Thống Kê Tổng Quan</string>
+    <string name="widget_project_name">SZ Task: Tiến Độ Dự Án</string>
+</resources>
