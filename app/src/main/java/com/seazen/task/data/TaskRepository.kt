@@ -51,6 +51,17 @@ class TaskRepository(private val context: Context) {
 
     private val fileLock = Any()
 
+    fun isNetworkAvailable(): Boolean {
+        return try {
+            val cm = context.getSystemService(Context.CONNECTIVITY_SERVICE) as? android.net.ConnectivityManager ?: return false
+            val network = cm.activeNetwork ?: return false
+            val caps = cm.getNetworkCapabilities(network) ?: return false
+            caps.hasCapability(android.net.NetworkCapabilities.NET_CAPABILITY_INTERNET)
+        } catch (_: Exception) {
+            false
+        }
+    }
+
     // Danh sach Task Chi Tiet (Viec con)
     private val _tasks = MutableStateFlow<List<TaskItem>>(emptyList())
     val tasks: StateFlow<List<TaskItem>> = _tasks.asStateFlow()
@@ -163,15 +174,13 @@ class TaskRepository(private val context: Context) {
                 val rawUsers = prefs.getString("users_json", null)
                 if (!rawUsers.isNullOrBlank()) {
                     val parsed: List<SeaZenUser>? = gson.fromJson(rawUsers, userType)
-                    val list = parsed?.filterNotNull() ?: getFallbackUsers()
-                    _users.value = list
-                    saveListToFile("users_cache.json", list)
+                    _users.value = parsed?.filterNotNull() ?: emptyList()
                 } else {
-                    _users.value = getFallbackUsers()
+                    _users.value = emptyList()
                 }
             }
         } catch (_: Exception) {
-            _users.value = getFallbackUsers()
+            _users.value = emptyList()
         }
     }
 
@@ -322,122 +331,6 @@ class TaskRepository(private val context: Context) {
         return _tasks.value.count { it.isActiveOn(date) }
     }
 
-    // ==========================================
-    // HANG DOI OFFLINE / MANG LAG (PENDING QUEUE)
-    // ==========================================
-    fun getPendingCreateChinh(): List<TaskChinhItem> {
-        val raw = prefs.getString("pending_create_chinh", null) ?: return emptyList()
-        return try {
-            val type = object : TypeToken<List<TaskChinhItem>>() {}.type
-            gson.fromJson<List<TaskChinhItem>>(raw, type) ?: emptyList()
-        } catch (_: Exception) { emptyList() }
-    }
-
-    private fun savePendingCreateChinh(list: List<TaskChinhItem>) {
-        prefs.edit().putString("pending_create_chinh", gson.toJson(list)).apply()
-    }
-
-    private fun addPendingCreateChinh(item: TaskChinhItem) {
-        val current = getPendingCreateChinh().filter { it.id != item.id }
-        savePendingCreateChinh(current + item)
-    }
-
-    private fun removePendingCreateChinh(id: Long) {
-        val current = getPendingCreateChinh().filter { it.id != id }
-        savePendingCreateChinh(current)
-    }
-
-    fun getPendingCreateChiTiet(): List<TaskItem> {
-        val raw = prefs.getString("pending_create_chitiet", null) ?: return emptyList()
-        return try {
-            val type = object : TypeToken<List<TaskItem>>() {}.type
-            gson.fromJson<List<TaskItem>>(raw, type) ?: emptyList()
-        } catch (_: Exception) { emptyList() }
-    }
-
-    private fun savePendingCreateChiTiet(list: List<TaskItem>) {
-        prefs.edit().putString("pending_create_chitiet", gson.toJson(list)).apply()
-    }
-
-    private fun addPendingCreateChiTiet(item: TaskItem) {
-        val current = getPendingCreateChiTiet().filter { it.id != item.id }
-        savePendingCreateChiTiet(current + item)
-    }
-
-    private fun removePendingCreateChiTiet(id: Long) {
-        val current = getPendingCreateChiTiet().filter { it.id != id }
-        savePendingCreateChiTiet(current)
-    }
-
-    private fun getPendingToggleTasks(): Map<Long, Boolean> {
-        val raw = prefs.getString("pending_toggle_tasks", null) ?: return emptyMap()
-        return try {
-            val type = object : TypeToken<Map<Long, Boolean>>() {}.type
-            gson.fromJson<Map<Long, Boolean>>(raw, type) ?: emptyMap()
-        } catch (_: Exception) { emptyMap() }
-    }
-
-    private fun savePendingToggleTasks(map: Map<Long, Boolean>) {
-        prefs.edit().putString("pending_toggle_tasks", gson.toJson(map)).apply()
-    }
-
-    private fun addPendingToggle(taskId: Long, isDone: Boolean) {
-        val m = getPendingToggleTasks().toMutableMap()
-        m[taskId] = isDone
-        savePendingToggleTasks(m)
-    }
-
-    private fun removePendingToggle(taskId: Long) {
-        val m = getPendingToggleTasks().toMutableMap()
-        m.remove(taskId)
-        savePendingToggleTasks(m)
-    }
-
-    // Tu dong day hang doi cho dong bo len SharePoint khi co ket noi
-    private suspend fun flushPendingSync(token: String) {
-        // 1. Flush TaskChinh pending
-        val pendingChinh = getPendingCreateChinh()
-        for (item in pendingChinh) {
-            try {
-                val res = executeCreateTaskChinh(item.safeTitle, item.safeStartDate, item.safeEndDate, item.safeResponsiblePerson, item.safeResponsibleEmail, item.safePhongBan, item.safePhanLoaiTask, item.safePhanLoaiViec, item.safeCreatorName, item.safeCreatorEmail, item.safeCcName, item.safeCcEmail, token)
-                if (res != null) {
-                    removePendingCreateChinh(item.id)
-                    val currentChinh = _taskChinhList.value.map { if (it.id == item.id) res else it }
-                    saveTaskChinh(currentChinh)
-                    val currentTasks = _tasks.value.map { if (it.taskChinhId == item.id) it.copy(taskChinhId = res.id) else it }
-                    saveTasks(currentTasks)
-                }
-            } catch (_: Exception) {}
-        }
-
-        // 2. Flush TaskChiTiet pending
-        val pendingChiTiet = getPendingCreateChiTiet()
-        for (item in pendingChiTiet) {
-            try {
-                val res = executeCreateTaskChiTiet(item.safeTitle, item.taskChinhId, item.safeTaskChinhTitle, item.safeStartDate, item.safeEndDate, item.safeAssigneeName, item.safeAssigneeEmail, token)
-                if (res != null) {
-                    removePendingCreateChiTiet(item.id)
-                    val currentTasks = _tasks.value.map { if (it.id == item.id) res else it }
-                    saveTasks(currentTasks)
-                }
-            } catch (_: Exception) {}
-        }
-
-        // 3. Flush Pending Toggles
-        val pendingToggles = getPendingToggleTasks()
-        for ((tId, isDone) in pendingToggles) {
-            try {
-                val ok = executeToggleTaskCompletion(tId, isDone, token)
-                if (ok) {
-                    removePendingToggle(tId)
-                }
-            } catch (_: Exception) {}
-        }
-    }
-
-    // ==========================================
-    // DONG BO DA LUONG TANG TOC TU SHAREPOINT (SSOT)
-    // ==========================================
     suspend fun fetchAllFromSharePoint(token: String? = null): Result<Unit> = withContext(Dispatchers.IO) {
         _isSyncing.value = true
         var activeToken = token?.trim()?.ifBlank { null } ?: getValidToken() ?: ""
@@ -452,10 +345,7 @@ class TaskRepository(private val context: Context) {
         val phanquyenId = getListPhanQuyenId()
 
         try {
-            // Day hang doi offline neu co
-            flushPendingSync(activeToken)
-
-            // Goi song song ca 3 endpoint de tang toc do reload gap doi
+            // Goi song song ca 3 endpoint truc tiep tu SharePoint
             coroutineScope {
                 val defChinh = async { fetchRawChinh(siteUrl, chinhId, activeToken) }
                 val defChiTiet = async { fetchRawChiTiet(siteUrl, chitietId, activeToken) }
@@ -470,16 +360,9 @@ class TaskRepository(private val context: Context) {
                 val serverUsers = defUsers.await()
 
                 // SINGLE SOURCE OF TRUTH (SSOT):
-                // Chi giu nhung gi thuc su co tren SharePoint + items offline cho ghi
-                val pendingChinh = getPendingCreateChinh()
-                val pendingChiTiet = getPendingCreateChiTiet()
-
-                val finalChinh = (pendingChinh + serverChinh).distinctBy { it.id }
-                val finalTasks = (pendingChiTiet + serverChiTiet).distinctBy { it.id }
-
-                // Tinh toan lai tien do tu dau viec thuc te
-                val synchronizedChinh = finalChinh.map { p ->
-                    val relatedSubs = finalTasks.filter { it.taskChinhId == p.id }
+                // Chi luu va hien thi du lieu thuc te tu SharePoint
+                val synchronizedChinh = serverChinh.map { p ->
+                    val relatedSubs = serverChiTiet.filter { it.taskChinhId == p.id }
                     if (relatedSubs.isNotEmpty()) {
                         val compProg = p.computedProgress(relatedSubs)
                         val compStatus = when {
@@ -492,7 +375,7 @@ class TaskRepository(private val context: Context) {
                 }
 
                 saveTaskChinh(synchronizedChinh)
-                saveTasks(finalTasks)
+                saveTasks(serverChiTiet)
                 if (serverUsers.isNotEmpty()) {
                     saveUsers(serverUsers)
                 }
@@ -762,26 +645,20 @@ class TaskRepository(private val context: Context) {
 
         val activeToken = getValidToken()
         if (activeToken.isNullOrBlank()) {
-            addPendingCreateChinh(localItem)
-            saveTaskChinh(listOf(localItem) + _taskChinhList.value)
-            return@withContext Result.success(localItem)
+            return@withContext Result.failure(Exception("Chưa có phiên làm việc hoặc mất kết nối mạng. Vui lòng kết nối mạng để tạo công việc."))
         }
 
         try {
             val realItem = executeCreateTaskChinh(title, startDate, endDate, responsiblePerson, responsibleEmail, phongBan, phanLoaiTask, phanLoaiViec, creatorName, creatorEmail, ccName, ccEmail, activeToken)
             if (realItem != null) {
-                val currentList = _taskChinhList.value.filter { it.id != realItem.id && it.id != tempId }
+                val currentList = _taskChinhList.value.filter { it.id != realItem.id }
                 saveTaskChinh(listOf(realItem) + currentList)
                 Result.success(realItem)
             } else {
-                addPendingCreateChinh(localItem)
-                saveTaskChinh(listOf(localItem) + _taskChinhList.value)
-                Result.success(localItem)
+                Result.failure(Exception("Không thể tạo công việc chính trên SharePoint. Vui lòng thử lại."))
             }
-        } catch (_: Exception) {
-            addPendingCreateChinh(localItem)
-            saveTaskChinh(listOf(localItem) + _taskChinhList.value)
-            Result.success(localItem)
+        } catch (e: Exception) {
+            Result.failure(e)
         }
     }
 
@@ -910,33 +787,21 @@ class TaskRepository(private val context: Context) {
 
         val activeToken = getValidToken()
         if (activeToken.isNullOrBlank()) {
-            addPendingCreateChiTiet(localItem)
-            val updatedTasks = listOf(localItem) + _tasks.value
-            saveTasks(updatedTasks)
-            if (taskChinhId != null) recalculateParentProgress(taskChinhId, updatedTasks)
-            return@withContext Result.success(localItem)
+            return@withContext Result.failure(Exception("Chưa có phiên làm việc hoặc mất kết nối mạng. Vui lòng kết nối mạng để tạo công việc."))
         }
 
         try {
             val realItem = executeCreateTaskChiTiet(title, taskChinhId, resolvedParentTitle, startDate, endDate, assigneeName, assigneeEmail, activeToken)
             if (realItem != null) {
-                val updatedTasks = listOf(realItem) + _tasks.value.filter { it.id != realItem.id && it.id != tempId }
+                val updatedTasks = listOf(realItem) + _tasks.value.filter { it.id != realItem.id }
                 saveTasks(updatedTasks)
                 if (taskChinhId != null) recalculateParentProgress(taskChinhId, updatedTasks)
                 Result.success(realItem)
             } else {
-                addPendingCreateChiTiet(localItem)
-                val updatedTasks = listOf(localItem) + _tasks.value
-                saveTasks(updatedTasks)
-                if (taskChinhId != null) recalculateParentProgress(taskChinhId, updatedTasks)
-                Result.success(localItem)
+                Result.failure(Exception("Không thể tạo công việc con trên SharePoint. Vui lòng thử lại."))
             }
-        } catch (_: Exception) {
-            addPendingCreateChiTiet(localItem)
-            val updatedTasks = listOf(localItem) + _tasks.value
-            saveTasks(updatedTasks)
-            if (taskChinhId != null) recalculateParentProgress(taskChinhId, updatedTasks)
-            Result.success(localItem)
+        } catch (e: Exception) {
+            Result.failure(e)
         }
     }
 
@@ -1022,35 +887,29 @@ class TaskRepository(private val context: Context) {
 
     // Toggle hoan thanh TaskChiTiet
     suspend fun toggleTaskCompletion(taskId: Long): Result<Boolean> = withContext(Dispatchers.IO) {
-        val currentList = _tasks.value
-        val target = currentList.firstOrNull { it.id == taskId }
+        val target = _tasks.value.firstOrNull { it.id == taskId }
             ?: return@withContext Result.failure(Exception("Không tìm thấy công việc."))
 
         val newDoneStatus = !target.isCompleted
-        val updated = currentList.map {
-            if (it.id == taskId) it.copy(isCompleted = newDoneStatus) else it
-        }
-        saveTasks(updated)
-        recalculateParentProgress(target.taskChinhId, updated)
-
         val activeToken = getValidToken()
         if (activeToken.isNullOrBlank()) {
-            addPendingToggle(taskId, newDoneStatus)
-            return@withContext Result.success(newDoneStatus)
+            return@withContext Result.failure(Exception("Chưa có phiên làm việc. Vui lòng kết nối mạng để thao tác."))
         }
 
         try {
             val ok = executeToggleTaskCompletion(taskId, newDoneStatus, activeToken)
             if (ok) {
-                removePendingToggle(taskId)
+                val updated = _tasks.value.map {
+                    if (it.id == taskId) it.copy(isCompleted = newDoneStatus) else it
+                }
+                saveTasks(updated)
+                recalculateParentProgress(target.taskChinhId, updated)
                 Result.success(newDoneStatus)
             } else {
-                addPendingToggle(taskId, newDoneStatus)
-                Result.success(newDoneStatus)
+                Result.failure(Exception("Không thể cập nhật trạng thái trên máy chủ SharePoint."))
             }
-        } catch (_: Exception) {
-            addPendingToggle(taskId, newDoneStatus)
-            Result.success(newDoneStatus)
+        } catch (e: Exception) {
+            Result.failure(e)
         }
     }
 
@@ -1181,18 +1040,12 @@ class TaskRepository(private val context: Context) {
 
     // Xoa TaskChiTiet
     suspend fun deleteTaskChiTiet(taskId: Long): Result<Unit> = withContext(Dispatchers.IO) {
-        val currentList = _tasks.value
-        val target = currentList.find { it.id == taskId }
-        val updated = currentList.filter { it.id != taskId }
-        saveTasks(updated)
-        if (target?.taskChinhId != null) {
-            recalculateParentProgress(target.taskChinhId, updated)
+        val activeToken = getValidToken()
+        if (activeToken.isNullOrBlank()) {
+            return@withContext Result.failure(Exception("Chưa có phiên làm việc. Vui lòng kết nối mạng."))
         }
 
-        val activeToken = getValidToken() ?: ""
-        if (activeToken.isBlank()) {
-            return@withContext Result.success(Unit)
-        }
+        val target = _tasks.value.find { it.id == taskId }
 
         try {
             val siteUrl = getSiteUrl().removeSuffix("/")
@@ -1226,10 +1079,15 @@ class TaskRepository(private val context: Context) {
             }
 
             resp.use { r ->
-                if (r.isSuccessful || r.code == 200 || r.code == 204) {
+                if (r.isSuccessful || r.code in listOf(200, 204, 404)) {
+                    val updated = _tasks.value.filter { it.id != taskId }
+                    saveTasks(updated)
+                    if (target?.taskChinhId != null) {
+                        recalculateParentProgress(target.taskChinhId, updated)
+                    }
                     Result.success(Unit)
                 } else {
-                    Result.failure(Exception("HTTP ${r.code}"))
+                    Result.failure(Exception("Không thể xóa trên SharePoint (HTTP ${r.code})."))
                 }
             }
         } catch (e: Exception) {
@@ -1237,64 +1095,30 @@ class TaskRepository(private val context: Context) {
         }
     }
 
-    private fun recalculateParentProgress(parentId: Long?, currentTasks: List<TaskItem>) {
+    private fun recalculateParentProgress(parentId: Long?, allTasks: List<TaskItem>) {
         if (parentId == null || parentId <= 0L) return
-        val currentChinh = _taskChinhList.value
-        val parent = currentChinh.find { it.id == parentId } ?: return
-        val relatedSubs = currentTasks.filter { it.taskChinhId == parentId }
-        val newProgress = parent.computedProgress(relatedSubs)
+        val subs = allTasks.filter { it.taskChinhId == parentId }
+        val targetParent = _taskChinhList.value.find { it.id == parentId } ?: return
+        val newProg = targetParent.computedProgress(subs)
         val newStatus = when {
-            relatedSubs.isNotEmpty() && relatedSubs.all { it.isCompleted } -> "Hoàn thành"
-            relatedSubs.any { it.isCompleted } || newProgress > 0 -> "Đang làm"
-            else -> if (parent.safeTrangThai.contains("Hoàn thành", ignoreCase = true)) "Đang làm" else parent.safeTrangThai
+            subs.all { it.isCompleted } -> "Hoàn thành"
+            newProg > 0 -> "Đang làm"
+            else -> targetParent.safeTrangThai
         }
-        val updatedChinh = currentChinh.map {
-            if (it.id == parentId) it.copy(progress = newProgress, trangThai = newStatus) else it
+        val updatedChinh = _taskChinhList.value.map {
+            if (it.id == parentId) it.copy(progress = newProg, trangThai = newStatus) else it
         }
         saveTaskChinh(updatedChinh)
     }
 
-    fun resetToFallback() {
-        saveTasks(emptyList())
-        saveTaskChinh(emptyList())
-        saveUsers(getFallbackUsers())
-    }
-
-    fun getFallbackUsers(): List<SeaZenUser> {
-        return listOf(
-            SeaZenUser(26, "ĐẶNG THÀNH NGUYÊN", "nguyen.dang@seazen.com.vn", "Phó Giám Đốc", "Vận Hành"),
-            SeaZenUser(50, "ĐỖ NGUYỄN HẠNH DUNG", "dung.do@seazen.com.vn", "Trưởng Phòng", "Kinh Doanh"),
-            SeaZenUser(33, "ĐỖ THỊ HƯƠNG", "huong.do@seazen.com.vn", "Trưởng Bộ Phận", "C&B"),
-            SeaZenUser(36, "ĐỖ VĂN TOÀN", "toan.do@seazen.com.vn", "Tổng Giám Đốc", "Tổng Giám Đốc"),
-            SeaZenUser(35, "ĐỖ XUÂN THẮNG", "thang.do@seazen.com.vn", "Admin", "Admin"),
-            SeaZenUser(38, "DƯ THỤC UYÊN", "uyen.du@seazen.com.vn", "Nhân Viên", "Kế Toán"),
-            SeaZenUser(34, "DƯƠNG VĂN NAM", "nam.duong@seazen.com.vn", "Trưởng Bộ Phận", "Vận Hành"),
-            SeaZenUser(49, "GIANG TEST", "giang.vo1@seazen.com.vn", "Giám Đốc", "SeaZen Tech"),
-            SeaZenUser(43, "HÀ QUANG HIỆU", "hieu.ha@seazen.com.vn", "Nhân Viên", "SRT"),
-            SeaZenUser(29, "HOÀNG HỮU PHÚC", "phuc.hoang@seazen.com.vn", "Trưởng Bộ Phận", "Tuyển Dụng"),
-            SeaZenUser(30, "HỨA KIM TÀI", "tai.hua@seazen.com.vn", "Trưởng Bộ Phận", "Vận Hành"),
-            SeaZenUser(25, "HUỲNH NGỌC CHÂU", "chau.huynh@seazen.com.vn", "Chuyên Viên", "Pháp Lý"),
-            SeaZenUser(41, "KHƯƠNG VĂN MINH", "minh.khuong@seazen.com.vn", "Phó Phòng", "Kinh Doanh"),
-            SeaZenUser(20, "LÂM HỮU PHƯỚC", "phuoc.lam@seazen.com.vn", "Chuyên Viên", "Marketing"),
-            SeaZenUser(37, "LÊ HOÀI THẢO", "thao.le@seazen.com.vn", "Trưởng Phòng", "Kế Toán"),
-            SeaZenUser(48, "LÊ VĂN HỒNG", "hong.le@seazen.com.vn", "Giám Đốc", "HCNS"),
-            SeaZenUser(23, "NGUYỄN ĐÌNH HOÀNG", "hoang.nguyen@seazen.com.vn", "Chuyên Viên", "Đào Tạo"),
-            SeaZenUser(44, "NGUYỄN HẢI MINH", "minh.nguyen@seazen.com.vn", "Chuyên Viên", "SRT"),
-            SeaZenUser(45, "NGUYỄN HUỲNH VĂN SANG", "sang.nguyen@seazen.com.vn", "Admin", "SeaZen Tech"),
-            SeaZenUser(17, "NGUYỄN THỊ BÍNH", "binh.nguyen@seazen.com.vn", "Chuyên Viên", "Tuyển Dụng"),
-            SeaZenUser(39, "NGUYỄN THỊ CẨM HẠNH", "hanh.nguyen@seazen.com.vn", "Chuyên Viên", "Kế Toán"),
-            SeaZenUser(42, "NGUYỄN THỊ LAN ANH", "anh.nguyen@seazen.com.vn", "Trưởng Bộ Phận", "Hành Chính"),
-            SeaZenUser(4, "NGUYỄN THỊ NGÂN HÀ", "ha.nguyen@seazen.com.vn", "Trưởng Phòng", "Đào Tạo"),
-            SeaZenUser(51, "NGUYỄN THỊ NGỌC MINH", "minh.nguyen1@seazen.com.vn", "Giám Đốc", "Kinh Doanh"),
-            SeaZenUser(40, "NGUYỄN TRƯƠNG MINH ANH", "anh.nguyen1@seazen.com.vn", "Nhân Viên", "Kinh Doanh"),
-            SeaZenUser(19, "NGUYỄN VĂN THANH", "thanh.nguyen@seazen.com.vn", "Trưởng Bộ Phận", "Vận Hành"),
-            SeaZenUser(31, "PHAN MINH TÀI", "tai.phan@seazen.com.vn", "Admin", "Admin"),
-            SeaZenUser(22, "PHÙNG THỊ THẠNH", "thanh.phung@seazen.com.vn", "Chuyên Viên", "C&B"),
-            SeaZenUser(47, "TEST", "powerapp@seazenvn.onmicrosoft.com", "Nhân Viên", "CHĐ"),
-            SeaZenUser(28, "TRẦN GIA KHIÊM", "khiem.tran@seazen.com.vn", "Phó Phòng", "Marketing"),
-            SeaZenUser(24, "TRỊNH HOÀNG THÁM", "tham.trinh@seazen.com.vn", "Trưởng Bộ Phận", "Vận Hành"),
-            SeaZenUser(32, "TRỊNH THÁI THUẬN", "thuan.trinh@seazen.com.vn", "Chuyên Viên", "SeaZen Tech"),
-            SeaZenUser(1, "VÕ NGUYỄN TRƯỜNG GIANG", "giang.vo@seazen.com.vn", "Admin", "Admin")
-        )
+    fun clearLocalCache() {
+        _tasks.value = emptyList()
+        _taskChinhList.value = emptyList()
+        _users.value = emptyList()
+        getCacheFile("tasks_cache.json").delete()
+        getCacheFile("task_chinh_cache.json").delete()
+        getCacheFile("users_cache.json").delete()
+        prefs.edit().remove("tasks_json").remove("task_chinh_json").remove("users_json").apply()
+        notifyWidgetUpdate()
     }
 }

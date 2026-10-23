@@ -93,7 +93,7 @@ class MainActivity : ComponentActivity() {
                         CrashRecoveryScreen(
                             errorMessage = errorMsg,
                             onResetAndRestart = {
-                                repository.resetToFallback()
+                                repository.clearLocalCache()
                                 prefs.edit().remove("last_crash_error").apply()
                                 val restartIntent = Intent(this, MainActivity::class.java).apply {
                                     flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
@@ -433,11 +433,52 @@ fun MainContainerScreen(
                                 modifier = Modifier.size(36.dp)
                             )
                             Text(
-                                text = if (appLang == "en") "Loading data..." else "Đang tải dữ liệu...",
+                                text = if (appLang == "en") "Connecting to SharePoint..." else "Đang kết nối SharePoint...",
                                 fontSize = 12.5.sp,
                                 color = TextMuted,
                                 fontWeight = FontWeight.Medium
                             )
+                        }
+                    }
+                } else if (!isSyncing && tasks.isEmpty() && taskChinhList.isEmpty() && !repository.isNetworkAvailable()) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .background(MaterialTheme.colorScheme.background)
+                            .padding(24.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Column(
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(12.dp)
+                        ) {
+                            Text(
+                                text = if (appLang == "en") "No Internet Connection" else "Chưa có kết nối mạng",
+                                fontSize = 16.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = TextDark
+                            )
+                            Text(
+                                text = if (appLang == "en") "This application operates in strict real-time mode from SharePoint. Please connect to the internet to load data." else "Ứng dụng hoạt động theo tiêu chuẩn trực tuyến thời gian thực từ SharePoint. Vui lòng kết nối mạng để sử dụng.",
+                                fontSize = 12.5.sp,
+                                color = TextMuted,
+                                textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                            )
+                            Button(
+                                onClick = {
+                                    coroutineScope.launch {
+                                        repository.fetchAllFromSharePoint()
+                                    }
+                                },
+                                colors = ButtonDefaults.buttonColors(containerColor = PrimaryPurple),
+                                shape = RoundedCornerShape(10.dp)
+                            ) {
+                                Text(
+                                    text = if (appLang == "en") "Retry Connection" else "Thử lại kết nối",
+                                    color = Color.White,
+                                    fontSize = 13.sp
+                                )
+                            }
                         }
                     }
                 } else {

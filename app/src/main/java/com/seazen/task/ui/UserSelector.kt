@@ -392,7 +392,12 @@ fun UserPickerDialog(
                                     .padding(vertical = 32.dp),
                                 contentAlignment = Alignment.Center
                             ) {
-                                Text(text = "Không tìm thấy nhân sự phù hợp", fontSize = 12.sp, color = TextMuted)
+                                Text(
+                                    text = if (users.isEmpty()) "Chưa có dữ liệu nhân sự từ SharePoint.\nVui lòng kết nối mạng để tải lại." else "Không tìm thấy nhân sự phù hợp",
+                                    fontSize = 12.sp,
+                                    color = TextMuted,
+                                    textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                                )
                             }
                         }
                     } else {
