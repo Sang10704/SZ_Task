@@ -287,7 +287,14 @@ class TaskRepository(private val context: Context) {
     fun getSiteUrl(): String = prefs.getString("sp_site_url", "https://seazenvn.sharepoint.com/sites/ONESEAZEN") ?: "https://seazenvn.sharepoint.com/sites/ONESEAZEN"
     fun getListChiTietId(): String = prefs.getString("sp_list_chitiet_id", "fd83aa4a-a642-43c2-b2f0-d34079e850de") ?: "fd83aa4a-a642-43c2-b2f0-d34079e850de"
     fun getListChinhId(): String = prefs.getString("sp_list_chinh_id", "4d195cd8-53a0-472e-bdec-5a75c7062c14") ?: "4d195cd8-53a0-472e-bdec-5a75c7062c14"
-    fun getListPhanQuyenId(): String = prefs.getString("sp_list_phanquyen_id", "f7f3a310-a824-4ba9-a673-bf0038a423b9") ?: "f7f3a310-a824-4ba9-a673-bf0038a423b9"
+    fun getListPhanQuyenId(): String {
+        val id = prefs.getString("sp_list_phanquyen_id", null)
+        if (id.isNullOrBlank() || id == "f2a58b54-94c3-4c91-b3b3-f2223a496813") {
+            prefs.edit().putString("sp_list_phanquyen_id", "f7f3a310-a824-4ba9-a673-bf0038a423b9").apply()
+            return "f7f3a310-a824-4ba9-a673-bf0038a423b9"
+        }
+        return id
+    }
 
     fun logout() {
         prefs.edit().remove("ms_token").remove("ms_refresh_token").apply()
@@ -1256,15 +1263,14 @@ class TaskRepository(private val context: Context) {
     fun getFallbackUsers(): List<SeaZenUser> {
         return listOf(
             SeaZenUser(26, "ĐẶNG THÀNH NGUYÊN", "nguyen.dang@seazen.com.vn", "Phó Giám Đốc", "Vận Hành"),
-            SeaZenUser(50, "Đỗ Nguyễn Hạnh Dung", "dung.do@seazen.com.vn", "Trưởng Phòng", "Kinh Doanh"),
+            SeaZenUser(50, "ĐỖ NGUYỄN HẠNH DUNG", "dung.do@seazen.com.vn", "Trưởng Phòng", "Kinh Doanh"),
             SeaZenUser(33, "ĐỖ THỊ HƯƠNG", "huong.do@seazen.com.vn", "Trưởng Bộ Phận", "C&B"),
             SeaZenUser(36, "ĐỖ VĂN TOÀN", "toan.do@seazen.com.vn", "Tổng Giám Đốc", "Tổng Giám Đốc"),
             SeaZenUser(35, "ĐỖ XUÂN THẮNG", "thang.do@seazen.com.vn", "Admin", "Admin"),
             SeaZenUser(38, "DƯ THỤC UYÊN", "uyen.du@seazen.com.vn", "Nhân Viên", "Kế Toán"),
             SeaZenUser(34, "DƯƠNG VĂN NAM", "nam.duong@seazen.com.vn", "Trưởng Bộ Phận", "Vận Hành"),
-            SeaZenUser(49, "Giang Test", "giang.vo1@seazen.com.vn", "Giám Đốc", "SeaZen Tech"),
+            SeaZenUser(49, "GIANG TEST", "giang.vo1@seazen.com.vn", "Giám Đốc", "SeaZen Tech"),
             SeaZenUser(43, "HÀ QUANG HIỆU", "hieu.ha@seazen.com.vn", "Nhân Viên", "SRT"),
-            SeaZenUser(46, "HỒ HOÀNG SANG", "sang.ho@seazen.com.vn", "Nhân Viên", "SeaZen Tech"),
             SeaZenUser(29, "HOÀNG HỮU PHÚC", "phuc.hoang@seazen.com.vn", "Trưởng Bộ Phận", "Tuyển Dụng"),
             SeaZenUser(30, "HỨA KIM TÀI", "tai.hua@seazen.com.vn", "Trưởng Bộ Phận", "Vận Hành"),
             SeaZenUser(25, "HUỲNH NGỌC CHÂU", "chau.huynh@seazen.com.vn", "Chuyên Viên", "Pháp Lý"),
@@ -1274,21 +1280,21 @@ class TaskRepository(private val context: Context) {
             SeaZenUser(48, "LÊ VĂN HỒNG", "hong.le@seazen.com.vn", "Giám Đốc", "HCNS"),
             SeaZenUser(23, "NGUYỄN ĐÌNH HOÀNG", "hoang.nguyen@seazen.com.vn", "Chuyên Viên", "Đào Tạo"),
             SeaZenUser(44, "NGUYỄN HẢI MINH", "minh.nguyen@seazen.com.vn", "Chuyên Viên", "SRT"),
-            SeaZenUser(45, "NGUYỄN HUỲNH VĂN SANG", "sang.nguyen@seazen.com.vn", "Nhân Viên", "SeaZen Tech"),
+            SeaZenUser(45, "NGUYỄN HUỲNH VĂN SANG", "sang.nguyen@seazen.com.vn", "Admin", "SeaZen Tech"),
             SeaZenUser(17, "NGUYỄN THỊ BÍNH", "binh.nguyen@seazen.com.vn", "Chuyên Viên", "Tuyển Dụng"),
             SeaZenUser(39, "NGUYỄN THỊ CẨM HẠNH", "hanh.nguyen@seazen.com.vn", "Chuyên Viên", "Kế Toán"),
             SeaZenUser(42, "NGUYỄN THỊ LAN ANH", "anh.nguyen@seazen.com.vn", "Trưởng Bộ Phận", "Hành Chính"),
             SeaZenUser(4, "NGUYỄN THỊ NGÂN HÀ", "ha.nguyen@seazen.com.vn", "Trưởng Phòng", "Đào Tạo"),
-            SeaZenUser(51, "Nguyễn Thị Ngọc Minh", "minh.nguyen1@seazen.com.vn", "Giám Đốc", "Kinh Doanh"),
+            SeaZenUser(51, "NGUYỄN THỊ NGỌC MINH", "minh.nguyen1@seazen.com.vn", "Giám Đốc", "Kinh Doanh"),
             SeaZenUser(40, "NGUYỄN TRƯƠNG MINH ANH", "anh.nguyen1@seazen.com.vn", "Nhân Viên", "Kinh Doanh"),
             SeaZenUser(19, "NGUYỄN VĂN THANH", "thanh.nguyen@seazen.com.vn", "Trưởng Bộ Phận", "Vận Hành"),
             SeaZenUser(31, "PHAN MINH TÀI", "tai.phan@seazen.com.vn", "Admin", "Admin"),
             SeaZenUser(22, "PHÙNG THỊ THẠNH", "thanh.phung@seazen.com.vn", "Chuyên Viên", "C&B"),
-            SeaZenUser(47, "test", "powerapp@seazenvn.onmicrosoft.com", "Nhân Viên", "CHĐ"),
+            SeaZenUser(47, "TEST", "powerapp@seazenvn.onmicrosoft.com", "Nhân Viên", "CHĐ"),
             SeaZenUser(28, "TRẦN GIA KHIÊM", "khiem.tran@seazen.com.vn", "Phó Phòng", "Marketing"),
             SeaZenUser(24, "TRỊNH HOÀNG THÁM", "tham.trinh@seazen.com.vn", "Trưởng Bộ Phận", "Vận Hành"),
             SeaZenUser(32, "TRỊNH THÁI THUẬN", "thuan.trinh@seazen.com.vn", "Chuyên Viên", "SeaZen Tech"),
-            SeaZenUser(1, "Võ Nguyễn Trường Giang", "giang.vo@seazen.com.vn", "Admin", "Admin")
+            SeaZenUser(1, "VÕ NGUYỄN TRƯỜNG GIANG", "giang.vo@seazen.com.vn", "Admin", "Admin")
         )
     }
 }

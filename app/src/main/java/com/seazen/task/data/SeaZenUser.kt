@@ -7,7 +7,7 @@ data class SeaZenUser(
     val chucVu: String = "",
     val phongBan: String = ""
 ) {
-    val displayName: String get() = if (name.isNotBlank()) name else email
+    val displayName: String get() = (if (name.isNotBlank()) name else email).uppercase()
 
     val initials: String
         get() {

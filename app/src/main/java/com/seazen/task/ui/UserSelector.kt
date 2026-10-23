@@ -241,7 +241,7 @@ fun MultiUserSelector(
                                     }
                                 }
                                 Column(modifier = Modifier.weight(1f)) {
-                                    Text(text = u.name, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = TextDark)
+                                    Text(text = u.name.uppercase(), fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = TextDark)
                                     Text(text = "${u.email} • ${u.phongBan}", fontSize = 10.sp, color = TextMuted)
                                 }
                             }
@@ -419,7 +419,7 @@ fun UserPickerDialog(
 
                                 Column(modifier = Modifier.weight(1f)) {
                                     Text(
-                                        text = user.name,
+                                        text = user.name.uppercase(),
                                         fontSize = 13.sp,
                                         fontWeight = FontWeight.Bold,
                                         color = TextDark,

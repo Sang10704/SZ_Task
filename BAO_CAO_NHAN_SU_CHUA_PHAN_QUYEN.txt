@@ -1,0 +1,107 @@
+BÁO CÁO ĐỐI SOÁT NHÂN SỰ VĂN PHÒNG CHƯA CÓ TRONG DANH SÁCH PHÂN QUYỀN
+Thời gian trích xuất: 23/10/2026
+Nguồn dữ liệu:
+- Danh sách 1: SharePoint Online - DanhSachPhanQuyen (33 bản ghi phân quyền)
+  https://seazenvn.sharepoint.com/sites/ONESEAZEN/Lists/DanhSachPhanQuyen/AllItems.aspx
+- Danh sách 2: SharePoint Online - Master_NhanVien (DANH SÁCH NHÂN VIÊN SEAZEN_APPv1 - 829 nhân sự)
+  https://seazenvn.sharepoint.com/sites/ONESEAZEN/Lists/DANH%20SCH%20NHN%20VIN%20SEAZEN_APPv1/AllItems.aspx
+Tiêu chí lọc: KHU VỰC = 'VAN PHONG' và TRẠNG THÁI = 'Đang làm'
+
+====================================================================================================
+1. TỔNG HỢP SỐ LIỆU ĐỐI SOÁT
+====================================================================================================
+- Tổng nhân sự Khối Văn Phòng đang làm việc (Master_NhanVien): 55 nhân sự
+- Nhân sự đã có tên trong DanhSachPhanQuyen: 28 nhân sự
+- Nhân sự CHƯA có tên trong DanhSachPhanQuyen: 27 nhân sự
+
+====================================================================================================
+2. DANH SÁCH CHI TIẾT 27 NHÂN SỰ CHƯA CÓ TRONG DANH SÁCH PHÂN QUYỀN
+====================================================================================================
+STT | Mã NV  | Họ và tên                  | Mục tiêu / PB     | Chức vụ                                            | Số điện thoại | Ghi chú đối soát
+----+--------+----------------------------+-------------------+----------------------------------------------------+---------------+------------------------------------------------
+ 1  | 10189  | NGUYỄN THỊ PHƯƠNG THÚY     | BAN GIAM DOC      | Phó Tổng Giám Đốc                                  | 0943460326    | Chưa có trong phân quyền
+ 2  | 13414  | ĐÀO THỊ THANH BÌNH         | BAN GIAM DOC      | Trợ lý Tổng Giám đốc                               | 0903317340    | Chưa có trong phân quyền
+ 3  | 15085  | NGUYỄN THỊ HOÀNG LIÊN      | KINH DOANH        | Phó Giám Đốc Kinh Doanh                            | 0934163493    | Chưa có trong phân quyền
+ 4  | 14430  | TRƯƠNG THỊ MỸ DUNG         | KINH DOANH        | Nhân viên Kinh doanh                               |               | Chưa có trong phân quyền
+ 5  | 14868  | NGUYỄN THỊ CẨM TIÊN        | HANH CHINH        | Nhân viên hành chính                               | 0988894875    | Chưa có trong phân quyền
+ 6  | 15009  | VÕ QUANG ĐẠI               | HANH CHINH        | Nhân viên Tài xế                                   | 0903122680    | Chưa có trong phân quyền
+ 7  | 7583   | NGUYỄN THỊ TÂM             | HANH CHINH        | Tạp vụ                                             | 0935621430    | Chưa có trong phân quyền
+ 8  | 14938  | PHẠM THỊ CHÙM              | HANH CHINH        | Tạp Vụ                                             | 0779026451    | Chưa có trong phân quyền
+ 9  | 15063  | TRẦN THỊ MAY               | C&B               | Nhân viên C&B                                      | 0585872721    | Chưa có trong phân quyền
+10  | 14638  | TRẦN THỊ PHƯƠNG THẢO       | TUYEN DUNG        | Nhân viên Tuyển dụng                               | 0343825090    | Chưa có trong phân quyền
+11  | 14857  | NGUYỄN THỊ BÍCH NHƯ        | TUYEN DUNG        | Nhân viên Admin Tuyển dụng                         | 0359904624    | Tài khoản O365 đang gán nhầm vào dòng NGUYỄN THỊ BÍNH
+12  | 14947  | HÀ HOÀNG XUÂN NGA          | TUYEN DUNG        | Trưởng Bộ phận Tuyển Dụng                          | 0387315455    | Tài khoản O365 đang gán nhầm vào dòng HOÀNG HỮU PHÚC
+13  | 15090  | TRƯƠNG NGUYỄN HỒNG NHUNG   | VAN PHONG         | Trưởng Phòng Tuyển dụng & Đào tạo                  | 0764764779    | Chưa có trong phân quyền
+14  | 14827  | HUỲNH PHAN TIẾN ĐẠT        | SEAZEN EDU        | Thực tập sinh - Edu                                | 0396397915    | Chưa có trong phân quyền
+15  | 14848  | HUỲNH NGỌC CHINH           | PHAP LY           | Thực tập sinh - Pháp lý                            | 0707493769    | Chưa có trong phân quyền
+16  | 14865  | NGUYỄN THỊ QUỲNH NHA       | MARKETING         | Nhân viên MKT                                      | 0935673066    | Chưa có trong phân quyền
+17  | 14429  | NGUYỄN HOÀNG THANH UYÊN    | MARKETING         | Thực tập sinh Marketing                            |               | Chưa có trong phân quyền
+18  | 15007  | LÊ HOÀNG PHÚC              | MARKETING         | Thực tập sinh Marketing                            |               | Chưa có trong phân quyền
+19  | 15023  | HUỲNH THỊ THANH PHƯƠNG     | MARKETING         | Thực tập sinh Marketing                            | 0961928772    | Chưa có trong phân quyền
+20  | 15025  | PHẠM THỊ MINH THƯ          | MARKETING         | Thực tập sinh Marketing                            | 0325861531    | Chưa có trong phân quyền
+21  | 14639  | NGUYỄN VÕ THU HÀ           | VAN HANH          | Nhân viên Admin                                    | 0383567234    | Chưa có trong phân quyền
+22  | 14757  | NGUYỄN ĐÌNH TIẾN ANH       | VAN HANH          | Chuyên viên vận hành dịch vụ                       | 0987685505    | Chưa có trong phân quyền
+23  | 14770  | HUỲNH PHÚ SANG             | VAN HANH          | Chuyên viên vận hành dịch vụ                       | 0947886134    | Chưa có trong phân quyền
+24  | 15012  | PHAN MINH HỒNG TẤN         | SRT               | Ca trưởng SRT                                      | 0909471533    | Chưa có trong phân quyền
+25  | 14450  | HỒ PHẠM PHƯƠNG NAM         | SRT               | Nhân viên SRT                                      | 0911871592    | Chưa có trong phân quyền
+26  | 15029  | NGUYỄN KHẮC CHUNG          | SRT               | Nhân viên SRT                                      | 0938302113    | Chưa có trong phân quyền
+27  | 15049  | NGUYỄN THANH BÌNH          | SRT               | Nhân viên SRT                                      | 0919378056    | Chưa có trong phân quyền
+
+====================================================================================================
+3. PHÂN NHÓM THEO MỤC TIÊU / PHÒNG BAN
+====================================================================================================
+1. BAN GIÁM ĐỐC (2 nhân sự)
+   - [10189] Nguyễn Thị Phương Thúy - Phó Tổng Giám Đốc (SĐT: 0943460326)
+   - [13414] Đào Thị Thanh Bình - Trợ lý Tổng Giám đốc (SĐT: 0903317340)
+
+2. KINH DOANH (2 nhân sự)
+   - [15085] Nguyễn Thị Hoàng Liên - Phó Giám Đốc Kinh Doanh (SĐT: 0934163493)
+   - [14430] Trương Thị Mỹ Dung - Nhân viên Kinh doanh
+
+3. HÀNH CHÍNH & HẬU CẦN (4 nhân sự)
+   - [14868] Nguyễn Thị Cẩm Tiên - Nhân viên hành chính (SĐT: 0988894875)
+   - [15009] Võ Quang Đại - Nhân viên Tài xế (SĐT: 0903122680)
+   - [7583]  Nguyễn Thị Tâm - Tạp vụ (SĐT: 0935621430)
+   - [14938] Phạm Thị Chùm - Tạp Vụ (SĐT: 0779026451)
+
+4. TUYỂN DỤNG & ĐÀO TẠO (4 nhân sự)
+   - [15090] Trương Nguyễn Hồng Nhung - Trưởng Phòng Tuyển dụng & Đào tạo (SĐT: 0764764779)
+   - [14947] Hà Hoàng Xuân Nga - Trưởng Bộ phận Tuyển Dụng (SĐT: 0387315455)
+   - [14638] Trần Thị Phương Thảo - Nhân viên Tuyển dụng (SĐT: 0343825090)
+   - [14857] Nguyễn Thị Bích Như - Nhân viên Admin Tuyển dụng (SĐT: 0359904624)
+
+5. MARKETING (5 nhân sự)
+   - [14865] Nguyễn Thị Quỳnh Nha - Nhân viên MKT (SĐT: 0935673066)
+   - [14429] Nguyễn Hoàng Thanh Uyên - Thực tập sinh Marketing
+   - [15007] Lê Hoàng Phúc - Thực tập sinh Marketing
+   - [15023] Huỳnh Thị Thanh Phương - Thực tập sinh Marketing (SĐT: 0961928772)
+   - [15025] Phạm Thị Minh Thư - Thực tập sinh Marketing (SĐT: 0325861531)
+
+6. VẬN HÀNH (3 nhân sự)
+   - [14639] Nguyễn Võ Thu Hà - Nhân viên Admin (SĐT: 0383567234)
+   - [14757] Nguyễn Đình Tiến Anh - Chuyên viên vận hành dịch vụ (SĐT: 0987685505)
+   - [14770] Huỳnh Phú Sang - Chuyên viên vận hành dịch vụ (SĐT: 0947886134)
+
+7. ĐỘI PHẢN ỨNG NHANH - SRT (4 nhân sự)
+   - [15012] Phan Minh Hồng Tấn - Ca trưởng SRT (SĐT: 0909471533)
+   - [14450] Hồ Phạm Phương Nam - Nhân viên SRT (SĐT: 0911871592)
+   - [15029] Nguyễn Khắc Chung - Nhân viên SRT (SĐT: 0938302113)
+   - [15049] Nguyễn Thanh Bình - Nhân viên SRT (SĐT: 0919378056)
+
+8. CÁC PHÒNG BAN KHÁC (3 nhân sự)
+   - C&B: [15063] Trần Thị May - Nhân viên C&B (SĐT: 0585872721)
+   - Pháp Lý: [14848] Huỳnh Ngọc Chinh - Thực tập sinh - Pháp lý (SĐT: 0707493769)
+   - Seazen Edu: [14827] Huỳnh Phan Tiến Đạt - Thực tập sinh - Edu (SĐT: 0396397915)
+
+====================================================================================================
+4. CHI TIẾT 2 TRƯỜNG HỢP LỆCH DỮ LIỆU CỘT TITLE TRÊN SHAREPOINT
+====================================================================================================
+1. Hà Hoàng Xuân Nga (Mã 14947 - Trưởng Bộ phận Tuyển Dụng):
+   - Trong DanhSachPhanQuyen, dòng số 12 có cột Title ghi "HOÀNG HỮU PHÚC".
+   - Tuy nhiên, cột EmailNhanVien (User Office365) lại gán là "Nga, Ha Hoang Xuan [SZ.HR-REC-HEAD]"
+     (Email: Nga.Ha@seazen.com.vn), trong khi cột Email text ghi "phuc.hoang@seazen.com.vn".
+
+2. Nguyễn Thị Bích Như (Mã 14857 - Nhân viên Admin Tuyển dụng):
+   - Trong DanhSachPhanQuyen, dòng số 3 có cột Title ghi "NGUYỄN THỊ BÍNH".
+   - Tuy nhiên, cột EmailNhanVien (User Office365) lại gán là "Nhu, Nguyen Thi Bich [SZ.HR-REC-ADM]"
+     (Email: Nhu.Nguyen@seazen.com.vn), trong khi cột Email text ghi "binh.nguyen@seazen.com.vn".
