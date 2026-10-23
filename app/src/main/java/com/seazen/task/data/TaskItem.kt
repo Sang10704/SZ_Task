@@ -4,14 +4,40 @@ import java.time.LocalDate
 
 fun parseLocalDate(raw: String?): LocalDate? {
     if (raw.isNullOrBlank()) return null
+    val trimmed = raw.trim()
     return try {
-        val clean = if (raw.contains("T")) raw.split("T")[0] else raw.trim()
-        val parts = clean.split("-")
-        if (parts.size == 3) {
-            LocalDate.of(parts[0].toInt(), parts[1].toInt(), parts[2].toInt())
-        } else null
+        if (trimmed.endsWith("Z", ignoreCase = true) || (trimmed.contains("T") && (trimmed.contains("+") || trimmed.contains("-", true) && trimmed.indexOf("-", 10) > 0))) {
+            try {
+                java.time.Instant.parse(trimmed).atZone(java.time.ZoneId.systemDefault()).toLocalDate()
+            } catch (_: Exception) {
+                java.time.OffsetDateTime.parse(trimmed).atZoneSameInstant(java.time.ZoneId.systemDefault()).toLocalDate()
+            }
+        } else if (trimmed.contains("T")) {
+            try {
+                java.time.LocalDateTime.parse(trimmed).toLocalDate()
+            } catch (_: Exception) {
+                val clean = trimmed.split("T")[0]
+                val parts = clean.split("-")
+                if (parts.size == 3) LocalDate.of(parts[0].toInt(), parts[1].toInt(), parts[2].toInt()) else null
+            }
+        } else {
+            val parts = trimmed.split("-")
+            if (parts.size == 3) {
+                LocalDate.of(parts[0].toInt(), parts[1].toInt(), parts[2].toInt())
+            } else {
+                LocalDate.parse(trimmed)
+            }
+        }
     } catch (_: Exception) {
-        null
+        try {
+            val clean = if (trimmed.contains("T")) trimmed.split("T")[0] else trimmed
+            val parts = clean.split("-")
+            if (parts.size == 3) {
+                LocalDate.of(parts[0].toInt(), parts[1].toInt(), parts[2].toInt())
+            } else null
+        } catch (_: Exception) {
+            null
+        }
     }
 }
 
@@ -57,7 +83,8 @@ data class TaskChinhItem(
 
     fun isActiveOn(date: LocalDate): Boolean {
         val start = parseLocalDate(safeStartDate)
-        val end = parseLocalDate(safeEndDate)
+        val rawEnd = parseLocalDate(safeEndDate)
+        val end = if (start != null && rawEnd != null && rawEnd.isBefore(start)) start else rawEnd
 
         return when {
             start != null && end != null -> !date.isBefore(start) && !date.isAfter(end)
@@ -107,7 +134,8 @@ data class TaskItem(
 
     fun isActiveOn(date: LocalDate): Boolean {
         val start = parseLocalDate(safeStartDate)
-        val end = parseLocalDate(safeEndDate)
+        val rawEnd = parseLocalDate(safeEndDate)
+        val end = if (start != null && rawEnd != null && rawEnd.isBefore(start)) start else rawEnd
 
         return when {
             start != null && end != null -> !date.isBefore(start) && !date.isAfter(end)

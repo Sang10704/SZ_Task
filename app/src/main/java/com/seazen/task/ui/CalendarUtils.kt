@@ -58,7 +58,7 @@ object CalendarUtils {
         val e = cleanDate(endDate)
         val isVi = lang != "en"
         return when {
-            s.isNotBlank() && e.isNotBlank() && s != e -> "$s - $e"
+            s.isNotBlank() && e.isNotBlank() -> if (s == e) s else "$s - $e"
             e.isNotBlank() -> if (isVi) "Hạn: $e" else "Due: $e"
             s.isNotBlank() -> if (isVi) "Bắt đầu: $s" else "Starts: $s"
             else -> if (isVi) "Hôm nay" else "Today"
@@ -67,6 +67,10 @@ object CalendarUtils {
 
     private fun cleanDate(raw: String?): String {
         if (raw.isNullOrBlank()) return ""
+        val parsed = com.seazen.task.data.parseLocalDate(raw)
+        if (parsed != null) {
+            return String.format(Locale.getDefault(), "%02d/%02d", parsed.dayOfMonth, parsed.monthValue)
+        }
         return try {
             val dateOnly = if (raw.contains("T")) raw.split("T")[0] else raw.trim()
             val parts = dateOnly.split("-")

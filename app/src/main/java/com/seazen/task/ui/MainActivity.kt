@@ -10,6 +10,7 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -243,6 +244,7 @@ fun AppNavigator(
     onSelectLang: (String) -> Unit
 ) {
     var isLoggedIn by remember { mutableStateOf(repository.isConfigured()) }
+    var showLanding by remember { mutableStateOf(!repository.isConfigured()) }
 
     if (isLoggedIn) {
         MainContainerScreen(
@@ -253,11 +255,17 @@ fun AppNavigator(
             onLogout = {
                 repository.logout()
                 isLoggedIn = false
+                showLanding = true
             }
+        )
+    } else if (showLanding) {
+        LandingScreen(
+            onGetStarted = { showLanding = false }
         )
     } else {
         LoginScreen(
             repository = repository,
+            onBackToLanding = { showLanding = true },
             onLoginSuccess = { isLoggedIn = true }
         )
     }
@@ -298,6 +306,13 @@ fun MainContainerScreen(
     val taskChinhList by repository.taskChinhList.collectAsState()
     val users by repository.users.collectAsState()
     val userEmail = repository.getSavedEmail().lowercase().trim()
+    val curUser = users.find { it.email.equals(userEmail, ignoreCase = true) }
+    LaunchedEffect(curUser) {
+        if (curUser != null && curUser.name.isNotBlank()) {
+            repository.saveUserName(curUser.name)
+        }
+    }
+    val currentUserName = curUser?.name ?: repository.getSavedUserName()
 
     // Xử lý sự kiện mở từ Widget
     val currentWidgetIntent = intentState.value
@@ -414,15 +429,19 @@ fun MainContainerScreen(
     viewingTask?.let { task ->
         val liveTask = tasks.find { it.id == task.id } ?: task
         val parentProj = taskChinhList.find { it.id == liveTask.taskChinhId }
+        val canEdit = isTaskRelatedToUser(liveTask, parentProj, userEmail, currentUserName)
         TaskDetailBottomSheet(
             task = liveTask,
             parentProject = parentProj,
+            canEdit = canEdit,
             onDismiss = { viewingTask = null },
             onToggle = {
-                coroutineScope.launch {
-                    val res = repository.toggleTaskCompletion(liveTask.id)
-                    if (res.isSuccess) {
-                        viewingTask = liveTask.copy(isCompleted = !liveTask.isCompleted)
+                if (canEdit) {
+                    coroutineScope.launch {
+                        val res = repository.toggleTaskCompletion(liveTask.id)
+                        if (res.isSuccess) {
+                            viewingTask = liveTask.copy(isCompleted = !liveTask.isCompleted)
+                        }
                     }
                 }
             },
@@ -439,7 +458,9 @@ fun MainContainerScreen(
     // Modal chi tiết Dự án / TaskChinh
     viewingProject?.let { proj ->
         val liveProj = taskChinhList.find { it.id == proj.id } ?: proj
-        val childTasks = tasks.filter { it.taskChinhId == liveProj.id }
+        val childTasks = tasks.filter {
+            it.taskChinhId == liveProj.id || (it.taskChinhId == null && it.safeTaskChinhTitle.isNotBlank() && it.safeTaskChinhTitle.equals(liveProj.safeTitle, ignoreCase = true))
+        }
         ProjectDetailBottomSheet(
             project = liveProj,
             childTasks = childTasks,
@@ -880,9 +901,7 @@ fun MyTasksTab(
     val scopedTasks = remember(tasks, taskChinhList, userEmail, selectedScope) {
         when (selectedScope) {
             "PERSONAL" -> {
-                if (userEmail.isNotBlank()) {
-                    tasks.filter { it.safeAssigneeEmail.lowercase().contains(userEmail) || it.safeAssigneeName.lowercase().contains("sang") }
-                } else tasks
+                tasks.filter { com.seazen.task.widget.SeaZenWidgetProvider.isMyTask(it, userEmail, repository.getSavedUserName()) }
             }
             "ALL" -> tasks
             else -> {
@@ -1076,7 +1095,7 @@ fun MyTasksTab(
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     items(scopedProjects) { proj ->
-                        val pTasks = tasks.filter { it.taskChinhId == proj.id }
+                        val pTasks = tasks.filter { it.taskChinhId == proj.id || (it.taskChinhId == null && it.safeTaskChinhTitle.isNotBlank() && it.safeTaskChinhTitle.equals(proj.safeTitle, ignoreCase = true)) }
                         val displayProgress = proj.computedProgress(pTasks)
                         Card(
                             modifier = Modifier
@@ -1187,11 +1206,16 @@ fun MyTasksTab(
             }
         } else {
             items(displayTasks, key = { it.id }) { task ->
+                val parentProj = taskChinhList.find { it.id == task.taskChinhId }
+                val canEdit = isTaskRelatedToUser(task, parentProj, userEmail, repository.getSavedUserName())
                 PersonalTaskCard(
                     task = task,
+                    canEdit = canEdit,
                     onToggle = {
-                        coroutineScope.launch {
-                            repository.toggleTaskCompletion(task.id)
+                        if (canEdit) {
+                            coroutineScope.launch {
+                                repository.toggleTaskCompletion(task.id)
+                            }
                         }
                     },
                     onClick = { onTaskClick(task) }
@@ -1236,7 +1260,7 @@ fun DepartmentTab(
                 "ALL" -> true
                 else -> p.safePhongBan.equals(selectedScope, ignoreCase = true)
             }
-            val pTasks = tasks.filter { it.taskChinhId == p.id }
+            val pTasks = tasks.filter { it.taskChinhId == p.id || (it.taskChinhId == null && it.safeTaskChinhTitle.isNotBlank() && it.safeTaskChinhTitle.equals(p.safeTitle, ignoreCase = true)) }
             val pProg = p.computedProgress(pTasks)
             val isProjOverdue = p.isOverdue() && pProg < 100
             val matchStatus = when (selectedStatus) {
@@ -1347,7 +1371,9 @@ fun DepartmentTab(
             items(filteredProjects, key = { it.id }) { proj ->
                 DepartmentProjectCard(
                     project = proj,
-                    childTasks = tasks.filter { it.taskChinhId == proj.id },
+                    childTasks = tasks.filter { it.taskChinhId == proj.id || (it.taskChinhId == null && it.safeTaskChinhTitle.isNotBlank() && it.safeTaskChinhTitle.equals(proj.safeTitle, ignoreCase = true)) },
+                    currentUserEmail = resolvedEmail,
+                    currentUserName = repository.getSavedUserName(),
                     onToggleChild = { taskId ->
                         coroutineScope.launch {
                             repository.toggleTaskCompletion(taskId)
@@ -1371,6 +1397,8 @@ fun DepartmentTab(
 fun DepartmentProjectCard(
     project: TaskChinhItem,
     childTasks: List<TaskItem>,
+    currentUserEmail: String = "",
+    currentUserName: String = "",
     onToggleChild: (Long) -> Unit,
     onClick: () -> Unit = {},
     onTaskClick: (TaskItem) -> Unit = {},
@@ -1541,10 +1569,16 @@ fun DepartmentProjectCard(
                                 .padding(horizontal = 8.dp, vertical = 6.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
+                            val canEditChild = isTaskRelatedToUser(ct, project, currentUserEmail, currentUserName)
                             Checkbox(
                                 checked = ct.isCompleted,
-                                onCheckedChange = { onToggleChild(ct.id) },
-                                colors = CheckboxDefaults.colors(checkedColor = PrimaryPurple)
+                                onCheckedChange = { if (canEditChild) onToggleChild(ct.id) },
+                                enabled = canEditChild,
+                                colors = CheckboxDefaults.colors(
+                                    checkedColor = PrimaryPurple,
+                                    disabledCheckedColor = Color(0xFF94A3B8),
+                                    disabledUncheckedColor = Color(0xFFCBD5E1)
+                                )
                             )
                             Spacer(modifier = Modifier.width(6.dp))
                             Column(modifier = Modifier.weight(1f)) {
@@ -1937,7 +1971,7 @@ fun CalendarTab(
             }
 
             items(dayProjects, key = { "proj_${it.id}" }) { proj ->
-                val pTasks = tasks.filter { it.taskChinhId == proj.id }
+                val pTasks = tasks.filter { it.taskChinhId == proj.id || (it.taskChinhId == null && it.safeTaskChinhTitle.isNotBlank() && it.safeTaskChinhTitle.equals(proj.safeTitle, ignoreCase = true)) }
                 val computedProg = proj.computedProgress(pTasks)
 
                 Card(
@@ -2032,10 +2066,15 @@ fun CalendarTab(
             }
 
             items(dayTasks, key = { it.id }) { task ->
+                val parentProj = taskChinhList.find { it.id == task.taskChinhId }
+                val canEdit = isTaskRelatedToUser(task, parentProj, resolvedEmail, repository.getSavedUserName())
                 PersonalTaskCard(
                     task = task,
+                    canEdit = canEdit,
                     onToggle = {
-                        coroutineScope.launch { repository.toggleTaskCompletion(task.id) }
+                        if (canEdit) {
+                            coroutineScope.launch { repository.toggleTaskCompletion(task.id) }
+                        }
                     },
                     onClick = { onTaskClick(task) }
                 )
@@ -2335,6 +2374,7 @@ fun FilterTabPill(text: String, isSelected: Boolean, onClick: () -> Unit) {
 @Composable
 fun PersonalTaskCard(
     task: TaskItem,
+    canEdit: Boolean = true,
     onToggle: () -> Unit,
     onClick: () -> Unit = {}
 ) {
@@ -2360,9 +2400,9 @@ fun PersonalTaskCard(
                 modifier = Modifier
                     .size(24.dp)
                     .clip(CircleShape)
-                    .background(if (task.isCompleted) PrimaryPurple else Color.Transparent)
-                    .border(1.5.dp, if (task.isCompleted) PrimaryPurple else Color(0xFF94A3B8), CircleShape)
-                    .clickable { onToggle() },
+                    .background(if (task.isCompleted) (if (canEdit) PrimaryPurple else Color(0xFF16A34A)) else Color.Transparent)
+                    .border(1.5.dp, if (task.isCompleted) (if (canEdit) PrimaryPurple else Color(0xFF16A34A)) else Color(0xFF94A3B8), CircleShape)
+                    .then(if (canEdit) Modifier.clickable { onToggle() } else Modifier),
                 contentAlignment = Alignment.Center
             ) {
                 if (task.isCompleted) {
@@ -2448,6 +2488,26 @@ fun PersonalTaskCard(
     }
 }
 
+fun isTaskRelatedToUser(
+    task: TaskItem,
+    parentProject: TaskChinhItem?,
+    currentUserEmail: String,
+    currentUserName: String
+): Boolean {
+    if (com.seazen.task.widget.SeaZenWidgetProvider.isMyTask(task, currentUserEmail, currentUserName)) {
+        return true
+    }
+    if (parentProject != null) {
+        val myEmail = currentUserEmail.trim().lowercase()
+        val pRespEmail = parentProject.safeResponsibleEmail.trim().lowercase()
+        val pCreatorEmail = parentProject.safeCreatorEmail.trim().lowercase()
+        if (myEmail.isNotBlank()) {
+            if (pRespEmail == myEmail || pCreatorEmail == myEmail) return true
+        }
+    }
+    return false
+}
+
 /**
  * Modal Bottom Sheet xem chi tiết Task
  */
@@ -2456,6 +2516,7 @@ fun PersonalTaskCard(
 fun TaskDetailBottomSheet(
     task: TaskItem,
     parentProject: TaskChinhItem? = null,
+    canEdit: Boolean = true,
     onDismiss: () -> Unit,
     onToggle: () -> Unit,
     onOpenParentProject: ((Long) -> Unit)? = null
@@ -2490,17 +2551,37 @@ fun TaskDetailBottomSheet(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Surface(
-                    shape = RoundedCornerShape(6.dp),
-                    color = if (task.isCompleted) Color(0xFFDCFCE7) else AccentPurpleLight
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Text(
-                        text = if (task.isCompleted) str.tagCompleted else str.statusInProgress,
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = if (task.isCompleted) Color(0xFF16A34A) else PrimaryPurple,
-                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
-                    )
+                    Surface(
+                        shape = RoundedCornerShape(6.dp),
+                        color = if (task.isCompleted) Color(0xFFDCFCE7) else AccentPurpleLight
+                    ) {
+                        Text(
+                            text = if (task.isCompleted) str.tagCompleted else str.statusInProgress,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = if (task.isCompleted) Color(0xFF16A34A) else PrimaryPurple,
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                        )
+                    }
+
+                    if (!canEdit) {
+                        Surface(
+                            shape = RoundedCornerShape(6.dp),
+                            color = Color(0xFFF1F5F9)
+                        ) {
+                            Text(
+                                text = if (lang == "en") "Read-Only" else "Chỉ xem",
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = Color(0xFF64748B),
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                            )
+                        }
+                    }
                 }
 
                 if (task.isOverdue()) {
@@ -2594,16 +2675,46 @@ fun TaskDetailBottomSheet(
 
             Spacer(modifier = Modifier.height(6.dp))
 
-            Button(
-                onClick = onToggle,
-                modifier = Modifier.fillMaxWidth().height(48.dp),
-                shape = RoundedCornerShape(12.dp),
-                colors = ButtonDefaults.buttonColors(containerColor = if (task.isCompleted) TextMuted else PrimaryPurple)
-            ) {
-                Text(
-                    text = if (task.isCompleted) str.actionMarkPending else str.actionMarkCompleted,
-                    fontWeight = FontWeight.SemiBold
-                )
+            if (canEdit) {
+                Button(
+                    onClick = onToggle,
+                    modifier = Modifier.fillMaxWidth().height(48.dp),
+                    shape = RoundedCornerShape(12.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = if (task.isCompleted) TextMuted else PrimaryPurple)
+                ) {
+                    Text(
+                        text = if (task.isCompleted) str.actionMarkPending else str.actionMarkCompleted,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                }
+            } else {
+                Button(
+                    onClick = {},
+                    enabled = false,
+                    modifier = Modifier.fillMaxWidth().height(48.dp),
+                    shape = RoundedCornerShape(12.dp),
+                    colors = ButtonDefaults.buttonColors(
+                        disabledContainerColor = Color(0xFFF1F5F9),
+                        disabledContentColor = Color(0xFF94A3B8)
+                    )
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Icon(
+                            Icons.Default.Lock,
+                            contentDescription = null,
+                            tint = Color(0xFF94A3B8),
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Text(
+                            text = if (lang == "en") "Read-Only (No edit permission)" else "Chỉ xem (Không có quyền sửa)",
+                            fontWeight = FontWeight.SemiBold,
+                            fontSize = 13.sp
+                        )
+                    }
+                }
             }
         }
     }
@@ -3081,6 +3192,7 @@ fun ProjectDetailBottomSheet(
                     verticalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
                     childTasks.forEach { ct ->
+                        val canEditChild = isTaskRelatedToUser(ct, project, currentUserEmail, users.find { it.email.equals(currentUserEmail, ignoreCase = true) }?.name ?: "")
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -3092,8 +3204,13 @@ fun ProjectDetailBottomSheet(
                         ) {
                             Checkbox(
                                 checked = ct.isCompleted,
-                                onCheckedChange = { onToggleChild(ct.id) },
-                                colors = CheckboxDefaults.colors(checkedColor = PrimaryPurple)
+                                onCheckedChange = { if (canEditChild) onToggleChild(ct.id) },
+                                enabled = canEditChild,
+                                colors = CheckboxDefaults.colors(
+                                    checkedColor = PrimaryPurple,
+                                    disabledCheckedColor = Color(0xFF94A3B8),
+                                    disabledUncheckedColor = Color(0xFFCBD5E1)
+                                )
                             )
                             Spacer(modifier = Modifier.width(6.dp))
                             Column(modifier = Modifier.weight(1f)) {
@@ -3149,7 +3266,7 @@ fun ProjectDetailBottomSheet(
                 }
             } else {
                 Text(
-                    text = str.calendarNoTasks,
+                    text = str.noSubtasks,
                     fontSize = 12.sp,
                     color = TextMuted
                 )
@@ -3720,10 +3837,108 @@ fun CreateTaskBottomSheet(
 /**
  * Màn hình đăng nhập Microsoft 365
  */
-@OptIn(ExperimentalMaterial3Api::class)
+/**
+ * Màn hình Landing bắt đầu theo phong cách thiết kế hiện đại (Image 3)
+ */
+@Composable
+fun LandingScreen(
+    onGetStarted: () -> Unit
+) {
+    val lang = LocalAppLanguage.current
+    val str = AppStrings.of(lang)
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color(0xFF1B3B8B))
+            .clickable { onGetStarted() }
+            .padding(32.dp)
+    ) {
+        Column(
+            modifier = Modifier
+                .align(Alignment.Center)
+                .fillMaxWidth(),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.Center
+            ) {
+                Text(
+                    text = "sz",
+                    fontSize = 46.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                    color = Color.White,
+                    letterSpacing = (-1).sp
+                )
+                Box(
+                    modifier = Modifier
+                        .padding(horizontal = 4.dp, vertical = 2.dp)
+                        .size(10.dp)
+                        .background(Color(0xFF38BDF8), CircleShape)
+                )
+                Text(
+                    text = "task",
+                    fontSize = 46.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                    color = Color.White,
+                    letterSpacing = (-1).sp
+                )
+            }
+
+            Spacer(modifier = Modifier.height(14.dp))
+
+            Text(
+                text = str.landingSubtitle,
+                fontSize = 14.sp,
+                color = Color.White.copy(alpha = 0.85f),
+                textAlign = TextAlign.Center,
+                fontWeight = FontWeight.Medium
+            )
+        }
+
+        Button(
+            onClick = onGetStarted,
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .fillMaxWidth()
+                .height(52.dp)
+                .padding(bottom = 4.dp),
+            shape = RoundedCornerShape(14.dp),
+            colors = ButtonDefaults.buttonColors(
+                containerColor = Color.White,
+                contentColor = Color(0xFF1B3B8B)
+            ),
+            elevation = ButtonDefaults.buttonElevation(defaultElevation = 4.dp)
+        ) {
+            Text(
+                text = str.btnGetStarted,
+                fontSize = 15.sp,
+                fontWeight = FontWeight.Bold,
+                color = Color(0xFF1B3B8B)
+            )
+            Spacer(modifier = Modifier.width(8.dp))
+            Icon(
+                imageVector = Icons.Default.ArrowForward,
+                contentDescription = null,
+                tint = Color(0xFF1B3B8B),
+                modifier = Modifier.size(18.dp)
+            )
+        }
+    }
+}
+
+/**
+ * Màn hình Đăng nhập theo phong cách Image 3:
+ * - Đăng nhập tài khoản mật khẩu
+ * - Ở dưới là "— Hoặc đăng nhập bằng —" với nút Microsoft 365
+ * - Không còn dữ liệu mẫu, không còn dán token thủ công
+ */
 @Composable
 fun LoginScreen(
     repository: TaskRepository,
+    onBackToLanding: () -> Unit,
     onLoginSuccess: () -> Unit
 ) {
     val context = LocalContext.current
@@ -3735,9 +3950,6 @@ fun LoginScreen(
     var password by remember { mutableStateOf("") }
     var isPasswordVisible by remember { mutableStateOf(false) }
 
-    var tokenInput by remember { mutableStateOf(repository.getSavedToken()) }
-    var showManualToken by remember { mutableStateOf(false) }
-
     var isLoading by remember { mutableStateOf(false) }
     var errorMessage by remember { mutableStateOf("") }
 
@@ -3745,251 +3957,364 @@ fun LoginScreen(
     var deviceVerificationUri by remember { mutableStateOf("") }
     var isWaitingDeviceLogin by remember { mutableStateOf(false) }
 
-    Scaffold(containerColor = BackgroundLight) { padding ->
+    fun performMicrosoftDeviceFlow() {
+        isLoading = true
+        errorMessage = ""
+        coroutineScope.launch {
+            val devRes = repository.authManager.requestDeviceCode()
+            isLoading = false
+            if (devRes != null) {
+                deviceUserCode = devRes.userCode
+                deviceVerificationUri = devRes.verificationUri
+                isWaitingDeviceLogin = true
+                val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                clipboard.setPrimaryClip(android.content.ClipData.newPlainText("user_code", devRes.userCode))
+                Toast.makeText(context, if (lang == "en") "Verification code copied: ${devRes.userCode}" else "Đã sao chép mã xác thực: ${devRes.userCode}", Toast.LENGTH_LONG).show()
+
+                launch {
+                    var polling = true
+                    while (polling) {
+                        kotlinx.coroutines.delay(devRes.interval * 1000)
+                        val pollRes = repository.authManager.pollDeviceCodeToken(devRes.deviceCode)
+                        if (pollRes.success && pollRes.accessToken != null) {
+                            polling = false
+                            repository.saveEmail(email)
+                            repository.saveToken(pollRes.accessToken)
+                            if (pollRes.refreshToken != null) repository.saveRefreshToken(pollRes.refreshToken)
+                            repository.fetchAllFromSharePoint(pollRes.accessToken)
+                            isWaitingDeviceLogin = false
+                            onLoginSuccess()
+                        } else if (pollRes.errorMessage?.contains("expired") == true) {
+                            polling = false
+                            isWaitingDeviceLogin = false
+                            errorMessage = if (lang == "en") "Verification code expired, please try again." else "Mã xác thực đã hết hạn, vui lòng thử lại."
+                        }
+                    }
+                }
+            } else {
+                errorMessage = if (lang == "en") "Unable to generate Device Code." else "Không thể tạo mã xác thực Device Code."
+            }
+        }
+    }
+
+    Scaffold(containerColor = Color.White) { padding ->
         Column(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding)
-                .padding(20.dp),
-            verticalArrangement = Arrangement.Center,
+                .verticalScroll(rememberScrollState())
+                .padding(horizontal = 24.dp, vertical = 20.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            Card(
+            // Top Bar with back button
+            Row(
                 modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(20.dp),
-                colors = CardDefaults.cardColors(containerColor = Color.White),
-                border = CardDefaults.outlinedCardBorder().copy(brush = androidx.compose.ui.graphics.SolidColor(CardBorderColor)),
-                elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                Column(modifier = Modifier.fillMaxWidth().padding(22.dp)) {
-                    Text(text = "SZ TASK", fontSize = 22.sp, fontWeight = FontWeight.Bold, color = PrimaryPurple)
-                    Text(
-                        text = str.loginSubtitle,
-                        fontSize = 12.sp,
-                        color = TextMuted,
-                        modifier = Modifier.padding(top = 4.dp, bottom = 18.dp)
+                IconButton(onClick = onBackToLanding) {
+                    Icon(
+                        imageVector = Icons.Default.ArrowBack,
+                        contentDescription = "Back",
+                        tint = Color(0xFF1E293B)
                     )
+                }
+            }
 
-                    OutlinedTextField(
-                        value = email,
-                        onValueChange = { email = it },
-                        label = { Text(str.fieldEmail) },
-                        singleLine = true,
-                        modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(10.dp),
-                        leadingIcon = { Icon(Icons.Default.Email, contentDescription = null, tint = TextMuted) }
+            Spacer(modifier = Modifier.height(16.dp))
+
+            // Logo Header (cignifi-style)
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.Center
+            ) {
+                Text(
+                    text = "sz",
+                    fontSize = 34.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                    color = Color(0xFF1B3B8B),
+                    letterSpacing = (-1).sp
+                )
+                Box(
+                    modifier = Modifier
+                        .padding(horizontal = 3.dp, vertical = 2.dp)
+                        .size(8.dp)
+                        .background(Color(0xFF0284C7), CircleShape)
+                )
+                Text(
+                    text = "task",
+                    fontSize = 34.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                    color = Color(0xFF1B3B8B),
+                    letterSpacing = (-1).sp
+                )
+            }
+
+            Spacer(modifier = Modifier.height(32.dp))
+
+            // Title "Login to your Account"
+            Text(
+                text = str.loginScreenTitle,
+                fontSize = 20.sp,
+                fontWeight = FontWeight.Bold,
+                color = Color(0xFF0F172A),
+                modifier = Modifier.fillMaxWidth()
+            )
+
+            Spacer(modifier = Modifier.height(20.dp))
+
+            // Email Input
+            Text(
+                text = str.fieldEmail,
+                fontSize = 13.sp,
+                fontWeight = FontWeight.Medium,
+                color = Color(0xFF475569),
+                modifier = Modifier.fillMaxWidth().padding(bottom = 6.dp)
+            )
+            OutlinedTextField(
+                value = email,
+                onValueChange = { email = it },
+                placeholder = { Text("sang.nguyen@seazen.com.vn", fontSize = 14.sp, color = Color(0xFF94A3B8)) },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(12.dp),
+                colors = OutlinedTextFieldDefaults.colors(
+                    focusedBorderColor = Color(0xFF1B3B8B),
+                    unfocusedBorderColor = Color(0xFFE2E8F0),
+                    focusedContainerColor = Color(0xFFF8FAFC),
+                    unfocusedContainerColor = Color(0xFFF8FAFC)
+                ),
+                leadingIcon = {
+                    Icon(
+                        imageVector = Icons.Default.Email,
+                        contentDescription = null,
+                        tint = Color(0xFF64748B),
+                        modifier = Modifier.size(20.dp)
                     )
+                }
+            )
 
-                    Spacer(modifier = Modifier.height(12.dp))
+            Spacer(modifier = Modifier.height(16.dp))
 
-                    OutlinedTextField(
-                        value = password,
-                        onValueChange = { password = it },
-                        label = { Text(str.fieldPassword) },
-                        singleLine = true,
-                        modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(10.dp),
-                        visualTransformation = if (isPasswordVisible) VisualTransformation.None else PasswordVisualTransformation(),
-                        leadingIcon = { Icon(Icons.Default.Lock, contentDescription = null, tint = TextMuted) },
-                        trailingIcon = {
-                            IconButton(onClick = { isPasswordVisible = !isPasswordVisible }) {
-                                Icon(
-                                    imageVector = if (isPasswordVisible) Icons.Default.VisibilityOff else Icons.Default.Visibility,
-                                    contentDescription = null,
-                                    tint = TextMuted
-                                )
-                            }
-                        }
+            // Password Input
+            Text(
+                text = str.fieldPassword,
+                fontSize = 13.sp,
+                fontWeight = FontWeight.Medium,
+                color = Color(0xFF475569),
+                modifier = Modifier.fillMaxWidth().padding(bottom = 6.dp)
+            )
+            OutlinedTextField(
+                value = password,
+                onValueChange = { password = it },
+                placeholder = { Text("••••••••", fontSize = 14.sp, color = Color(0xFF94A3B8)) },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(12.dp),
+                visualTransformation = if (isPasswordVisible) VisualTransformation.None else PasswordVisualTransformation(),
+                colors = OutlinedTextFieldDefaults.colors(
+                    focusedBorderColor = Color(0xFF1B3B8B),
+                    unfocusedBorderColor = Color(0xFFE2E8F0),
+                    focusedContainerColor = Color(0xFFF8FAFC),
+                    unfocusedContainerColor = Color(0xFFF8FAFC)
+                ),
+                leadingIcon = {
+                    Icon(
+                        imageVector = Icons.Default.Lock,
+                        contentDescription = null,
+                        tint = Color(0xFF64748B),
+                        modifier = Modifier.size(20.dp)
                     )
-
-                    if (isWaitingDeviceLogin && deviceUserCode.isNotBlank()) {
-                        Spacer(modifier = Modifier.height(12.dp))
-                        Surface(
-                            modifier = Modifier.fillMaxWidth(),
-                            shape = RoundedCornerShape(12.dp),
-                            color = Color(0xFFEFF6FF),
-                            border = CardDefaults.outlinedCardBorder().copy(brush = androidx.compose.ui.graphics.SolidColor(Color(0xFFBFDBFE)))
-                        ) {
-                            Column(modifier = Modifier.padding(14.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                                Text(text = str.mfaTitle, fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color(0xFF1E40AF))
-                                Spacer(modifier = Modifier.height(6.dp))
-                                Text(text = deviceUserCode, fontSize = 22.sp, fontWeight = FontWeight.ExtraBold, color = PrimaryPurple, letterSpacing = 2.sp)
-                                Spacer(modifier = Modifier.height(6.dp))
-                                Text(
-                                    text = str.mfaDesc,
-                                    fontSize = 11.sp,
-                                    color = Color(0xFF3B82F6),
-                                    textAlign = TextAlign.Center
-                                )
-                                Spacer(modifier = Modifier.height(10.dp))
-                                Button(
-                                    onClick = {
-                                        val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                                        clipboard.setPrimaryClip(android.content.ClipData.newPlainText("user_code", deviceUserCode))
-                                        val intent = Intent(Intent.ACTION_VIEW, Uri.parse(deviceVerificationUri))
-                                        context.startActivity(intent)
-                                    },
-                                    colors = ButtonDefaults.buttonColors(containerColor = PrimaryPurple),
-                                    shape = RoundedCornerShape(8.dp)
-                                ) {
-                                    Text(str.btnOpenMfa, fontSize = 12.sp)
-                                }
-                            }
-                        }
-                    }
-
-                    if (errorMessage.isNotBlank() && !isWaitingDeviceLogin) {
-                        Spacer(modifier = Modifier.height(8.dp))
-                        Text(text = errorMessage, fontSize = 12.sp, color = Color(0xFFDC2626), modifier = Modifier.padding(vertical = 4.dp))
-                    }
-
-                    Spacer(modifier = Modifier.height(16.dp))
-
-                    Button(
-                        onClick = {
-                            errorMessage = ""
-                            if (email.isBlank() || password.isBlank()) {
-                                errorMessage = str.loginErrorBlank
-                                return@Button
-                            }
-                            isLoading = true
-                            isWaitingDeviceLogin = false
-
-                            coroutineScope.launch {
-                                val res = repository.loginMicrosoft(email, password)
-                                isLoading = false
-                                if (res.success) {
-                                    Toast.makeText(context, if (lang == "en") "Microsoft sign-in successful" else "Đăng nhập Microsoft thành công", Toast.LENGTH_SHORT).show()
-                                    onLoginSuccess()
-                                } else {
-                                    if (res.isMfaRequired) {
-                                        val devRes = repository.authManager.requestDeviceCode()
-                                        if (devRes != null) {
-                                            deviceUserCode = devRes.userCode
-                                            deviceVerificationUri = devRes.verificationUri
-                                            isWaitingDeviceLogin = true
-                                            val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                                            clipboard.setPrimaryClip(android.content.ClipData.newPlainText("user_code", devRes.userCode))
-                                            Toast.makeText(context, if (lang == "en") "Verification code copied: ${devRes.userCode}" else "Đã sao chép mã xác thực: ${devRes.userCode}", Toast.LENGTH_LONG).show()
-
-                                             launch {
-                                                var polling = true
-                                                while (polling) {
-                                                    kotlinx.coroutines.delay(devRes.interval * 1000)
-                                                    val pollRes = repository.authManager.pollDeviceCodeToken(devRes.deviceCode)
-                                                    if (pollRes.success && pollRes.accessToken != null) {
-                                                        polling = false
-                                                        repository.saveEmail(email)
-                                                        repository.saveToken(pollRes.accessToken)
-                                                        if (pollRes.refreshToken != null) repository.saveRefreshToken(pollRes.refreshToken)
-                                                        repository.fetchAllFromSharePoint(pollRes.accessToken)
-                                                        isWaitingDeviceLogin = false
-                                                        onLoginSuccess()
-                                                    } else if (pollRes.errorMessage?.contains("expired") == true) {
-                                                        polling = false
-                                                        isWaitingDeviceLogin = false
-                                                        errorMessage = if (lang == "en") "Verification code expired, please try again." else "Mã xác thực đã hết hạn, vui lòng thử lại."
-                                                    }
-                                                }
-                                            }
-                                        } else {
-                                            errorMessage = if (lang == "en") "Unable to generate Device Code." else "Không thể tạo mã xác thực Device Code."
-                                        }
-                                    } else {
-                                        errorMessage = res.errorMessage ?: if (lang == "en") "Sign in failed" else "Đăng nhập thất bại"
-                                    }
-                                }
-                            }
-                        },
-                        modifier = Modifier.fillMaxWidth().height(48.dp),
-                        shape = RoundedCornerShape(12.dp),
-                        colors = ButtonDefaults.buttonColors(containerColor = PrimaryPurple),
-                        enabled = !isLoading
-                    ) {
-                        if (isLoading) {
-                            CircularProgressIndicator(modifier = Modifier.size(20.dp), color = Color.White, strokeWidth = 2.dp)
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text(str.btnConnectingMicrosoft)
-                        } else {
-                            Text(str.btnSignInMicrosoft, fontWeight = FontWeight.SemiBold)
-                        }
-                    }
-
-                    Spacer(modifier = Modifier.height(12.dp))
-
-                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center) {
-                        TextButton(onClick = { showManualToken = !showManualToken }) {
-                            Text(
-                                text = if (showManualToken) str.toggleManualTokenHide else str.toggleManualTokenShow,
-                                fontSize = 12.sp,
-                                color = TextMuted
-                            )
-                        }
-                    }
-
-                    if (showManualToken) {
-                        Spacer(modifier = Modifier.height(8.dp))
-                        OutlinedTextField(
-                            value = tokenInput,
-                            onValueChange = { tokenInput = it },
-                            label = { Text(str.labelBearerToken) },
-                            placeholder = { Text(str.placeholderPasteToken) },
-                            modifier = Modifier.fillMaxWidth(),
-                            maxLines = 3,
-                            shape = RoundedCornerShape(10.dp)
+                },
+                trailingIcon = {
+                    IconButton(onClick = { isPasswordVisible = !isPasswordVisible }) {
+                        Icon(
+                            imageVector = if (isPasswordVisible) Icons.Default.VisibilityOff else Icons.Default.Visibility,
+                            contentDescription = null,
+                            tint = Color(0xFF64748B),
+                            modifier = Modifier.size(20.dp)
                         )
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            TextButton(
-                                onClick = {
-                                    val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                                    val clip = clipboard.primaryClip
-                                    if (clip != null && clip.itemCount > 0) {
-                                        val text = clip.getItemAt(0).text?.toString() ?: ""
-                                        if (text.isNotBlank()) tokenInput = text.trim()
-                                    }
-                                }
-                            ) {
-                                Text(str.btnPasteClipboard, fontSize = 11.sp)
-                            }
-
-                            Button(
-                                onClick = {
-                                    if (tokenInput.isNotBlank()) {
-                                        repository.saveEmail(email)
-                                        repository.saveToken(tokenInput)
-                                        coroutineScope.launch {
-                                            repository.fetchAllFromSharePoint(tokenInput)
-                                            onLoginSuccess()
-                                        }
-                                    }
-                                },
-                                shape = RoundedCornerShape(8.dp),
-                                colors = ButtonDefaults.buttonColors(containerColor = PrimaryDark)
-                            ) {
-                                Text(str.btnConfirmToken, fontSize = 11.sp)
-                            }
-                        }
                     }
+                }
+            )
 
-                    Spacer(modifier = Modifier.height(8.dp))
-
-                    OutlinedButton(
-                        onClick = {
-                            repository.saveEmail(email.ifBlank { "sang.nguyen@seazen.com.vn" })
-                            repository.loadCachedData()
-                            onLoginSuccess()
-                        },
-                        modifier = Modifier.fillMaxWidth().height(48.dp),
-                        shape = RoundedCornerShape(12.dp)
+            // MFA verification prompt if needed
+            if (isWaitingDeviceLogin && deviceUserCode.isNotBlank()) {
+                Spacer(modifier = Modifier.height(16.dp))
+                Surface(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(12.dp),
+                    color = Color(0xFFEFF6FF),
+                    border = BorderStroke(1.dp, Color(0xFFBFDBFE))
+                ) {
+                    Column(
+                        modifier = Modifier.padding(16.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally
                     ) {
-                        Text(str.btnDemoOffline, color = TextDark)
+                        Text(text = str.mfaTitle, fontSize = 13.sp, fontWeight = FontWeight.Bold, color = Color(0xFF1E40AF))
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(text = deviceUserCode, fontSize = 24.sp, fontWeight = FontWeight.ExtraBold, color = Color(0xFF1B3B8B), letterSpacing = 3.sp)
+                        Spacer(modifier = Modifier.height(6.dp))
+                        Text(
+                            text = str.mfaDesc,
+                            fontSize = 11.sp,
+                            color = Color(0xFF3B82F6),
+                            textAlign = TextAlign.Center
+                        )
+                        Spacer(modifier = Modifier.height(10.dp))
+                        Button(
+                            onClick = {
+                                val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                                clipboard.setPrimaryClip(android.content.ClipData.newPlainText("user_code", deviceUserCode))
+                                val intent = Intent(Intent.ACTION_VIEW, Uri.parse(deviceVerificationUri))
+                                context.startActivity(intent)
+                            },
+                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1B3B8B)),
+                            shape = RoundedCornerShape(8.dp)
+                        ) {
+                            Text(str.btnOpenMfa, fontSize = 12.sp, color = Color.White)
+                        }
                     }
                 }
             }
+
+            // Error display
+            if (errorMessage.isNotBlank() && !isWaitingDeviceLogin) {
+                Spacer(modifier = Modifier.height(12.dp))
+                Surface(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(8.dp),
+                    color = Color(0xFFFEF2F2)
+                ) {
+                    Text(
+                        text = errorMessage,
+                        fontSize = 12.sp,
+                        color = Color(0xFFDC2626),
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(24.dp))
+
+            // Primary "Sign In" / "Đăng nhập" button
+            Button(
+                onClick = {
+                    errorMessage = ""
+                    if (email.isBlank() || password.isBlank()) {
+                        errorMessage = str.loginErrorBlank
+                        return@Button
+                    }
+                    isLoading = true
+                    isWaitingDeviceLogin = false
+
+                    coroutineScope.launch {
+                        val res = repository.loginMicrosoft(email, password)
+                        if (res.success && res.accessToken != null) {
+                            repository.saveEmail(email)
+                            repository.saveToken(res.accessToken)
+                            if (res.refreshToken != null) {
+                                repository.saveRefreshToken(res.refreshToken)
+                            }
+                            val foundUser = repository.users.value.find { it.email.equals(email, ignoreCase = true) }
+                            if (foundUser != null) {
+                                repository.saveUserName(foundUser.name)
+                            }
+                            repository.fetchAllFromSharePoint(res.accessToken)
+                            isLoading = false
+                            Toast.makeText(context, if (lang == "en") "Signed in successfully" else "Đăng nhập thành công", Toast.LENGTH_SHORT).show()
+                            onLoginSuccess()
+                        } else {
+                            isLoading = false
+                            if (res.isMfaRequired) {
+                                performMicrosoftDeviceFlow()
+                            } else {
+                                errorMessage = res.errorMessage ?: if (lang == "en") "Sign in failed" else "Đăng nhập thất bại"
+                            }
+                        }
+                    }
+                },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(50.dp),
+                shape = RoundedCornerShape(12.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1B3B8B)),
+                enabled = !isLoading
+            ) {
+                if (isLoading) {
+                    CircularProgressIndicator(modifier = Modifier.size(20.dp), color = Color.White, strokeWidth = 2.dp)
+                    Spacer(modifier = Modifier.width(10.dp))
+                    Text(str.btnConnectingMicrosoft, color = Color.White, fontWeight = FontWeight.SemiBold)
+                } else {
+                    Text(
+                        text = if (lang == "en") "Sign In" else "Đăng nhập",
+                        fontSize = 15.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Color.White
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(32.dp))
+
+            // Divider: — Or sign in with —
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                HorizontalDivider(modifier = Modifier.weight(1f), color = Color(0xFFE2E8F0))
+                Text(
+                    text = "  ${str.orSignInWith}  ",
+                    fontSize = 12.sp,
+                    color = Color(0xFF94A3B8)
+                )
+                HorizontalDivider(modifier = Modifier.weight(1f), color = Color(0xFFE2E8F0))
+            }
+
+            Spacer(modifier = Modifier.height(24.dp))
+
+            // Microsoft Login Card / Button
+            OutlinedButton(
+                onClick = { performMicrosoftDeviceFlow() },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(50.dp),
+                shape = RoundedCornerShape(12.dp),
+                border = BorderStroke(1.dp, Color(0xFFE2E8F0)),
+                colors = ButtonDefaults.outlinedButtonColors(containerColor = Color(0xFFF8FAFC)),
+                enabled = !isLoading
+            ) {
+                MicrosoftLogoIcon()
+                Spacer(modifier = Modifier.width(10.dp))
+                Text(
+                    text = str.btnSignInWithMicrosoft,
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = Color(0xFF1E293B)
+                )
+            }
+        }
+    }
+}
+
+@Composable
+fun MicrosoftLogoIcon() {
+    Column(
+        modifier = Modifier.size(18.dp),
+        verticalArrangement = Arrangement.spacedBy(2.dp)
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(2.dp)
+        ) {
+            Box(modifier = Modifier.size(8.dp).background(Color(0xFFF25022)))
+            Box(modifier = Modifier.size(8.dp).background(Color(0xFF7FBA00)))
+        }
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(2.dp)
+        ) {
+            Box(modifier = Modifier.size(8.dp).background(Color(0xFF00A4EF)))
+            Box(modifier = Modifier.size(8.dp).background(Color(0xFFFFB900)))
         }
     }
 }

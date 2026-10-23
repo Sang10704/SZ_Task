@@ -145,12 +145,32 @@ class SeaZenWidgetProvider : AppWidgetProvider() {
         const val ACTION_TYPE_LOCKED = "locked"
         const val ACTION_TYPE_OPEN_DETAIL = "open_detail"
 
-        fun isMyTask(task: com.seazen.task.data.TaskItem, currentUserEmail: String): Boolean {
-            val email = task.safeAssigneeEmail.lowercase().trim()
-            val name = task.safeAssigneeName.lowercase().trim()
-            if (currentUserEmail.isNotBlank() && email.contains(currentUserEmail)) return true
-            if (name.contains("sang") || name.contains("nguyễn")) return true
-            if (currentUserEmail.isBlank()) return true
+        fun isMyTask(
+            task: com.seazen.task.data.TaskItem,
+            currentUserEmail: String,
+            currentUserName: String = ""
+        ): Boolean {
+            val myEmail = currentUserEmail.trim().lowercase().ifBlank { "sang.nguyen@seazen.com.vn" }
+            val myName = currentUserName.trim().lowercase()
+            val taskEmail = task.safeAssigneeEmail.trim().lowercase()
+            val taskName = task.safeAssigneeName.trim().lowercase()
+
+            // 1. So khớp Email nếu task có email
+            if (taskEmail.isNotBlank()) {
+                return taskEmail == myEmail || taskEmail.contains(myEmail) || myEmail.contains(taskEmail)
+            }
+
+            // 2. Nếu task không có email, so khớp Họ tên
+            if (taskName.isNotBlank()) {
+                if (myName.isNotBlank() && (taskName == myName || taskName.contains(myName) || myName.contains(taskName))) {
+                    return true
+                }
+                // Nhận diện nhân sự Sang
+                if (taskName.contains("sang")) {
+                    return true
+                }
+            }
+
             return false
         }
 
@@ -160,6 +180,7 @@ class SeaZenWidgetProvider : AppWidgetProvider() {
                 val prefs = context.getSharedPreferences("seazen_task_prefs", Context.MODE_PRIVATE)
                 val allTasks = repository.tasks.value
                 val currentUserEmail = repository.getSavedEmail().lowercase().trim()
+                val currentUserName = repository.getSavedUserName().lowercase().trim()
 
                 // Scope: Mặc định là PERSONAL (Cá nhân)
                 val currentScope = prefs.getString("widget_scope", "PERSONAL") ?: "PERSONAL"
@@ -226,7 +247,7 @@ class SeaZenWidgetProvider : AppWidgetProvider() {
 
                     // Chấm báo hiệu có công việc trong ngày theo phạm vi lọc
                     val hasTasks = allTasks.any { task ->
-                        task.isActiveOn(date) && (!isPersonal || isMyTask(task, currentUserEmail))
+                        task.isActiveOn(date) && (!isPersonal || isMyTask(task, currentUserEmail, currentUserName))
                     }
                     views.setViewVisibility(dayDotIds[i], if (hasTasks) View.VISIBLE else View.INVISIBLE)
 

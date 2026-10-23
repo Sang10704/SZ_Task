@@ -10,8 +10,6 @@ import com.google.gson.JsonArray
 import com.google.gson.JsonObject
 import com.google.gson.reflect.TypeToken
 import com.seazen.task.R
-import com.seazen.task.widget.SeaZenOverviewWidgetProvider
-import com.seazen.task.widget.SeaZenProjectWidgetProvider
 import com.seazen.task.widget.SeaZenWidgetProvider
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
@@ -112,38 +110,15 @@ class TaskRepository(private val context: Context) {
     fun notifyWidgetUpdate() {
         try {
             val widgetManager = AppWidgetManager.getInstance(context)
-
-            // 1. Cập nhật SeaZenWidgetProvider (Việc Hôm Nay) - Thực thi trực tiếp tức thời
             SeaZenWidgetProvider.notifyAllWidgets(context)
-            val todayIds = widgetManager.getAppWidgetIds(ComponentName(context, SeaZenWidgetProvider::class.java))
-            if (todayIds.isNotEmpty()) {
+            val widgetIds = widgetManager.getAppWidgetIds(ComponentName(context, SeaZenWidgetProvider::class.java))
+            if (widgetIds.isNotEmpty()) {
                 val intent = Intent(context, SeaZenWidgetProvider::class.java).apply {
                     action = AppWidgetManager.ACTION_APPWIDGET_UPDATE
-                    putExtra(AppWidgetManager.EXTRA_APPWIDGET_IDS, todayIds)
+                    putExtra(AppWidgetManager.EXTRA_APPWIDGET_IDS, widgetIds)
                 }
                 context.sendBroadcast(intent)
-                widgetManager.notifyAppWidgetViewDataChanged(todayIds, R.id.widget_task_list)
-            }
-
-            // 2. Cập nhật SeaZenOverviewWidgetProvider (Thống kê tổng quan)
-            val overviewIds = widgetManager.getAppWidgetIds(ComponentName(context, SeaZenOverviewWidgetProvider::class.java))
-            if (overviewIds.isNotEmpty()) {
-                val intent = Intent(context, SeaZenOverviewWidgetProvider::class.java).apply {
-                    action = AppWidgetManager.ACTION_APPWIDGET_UPDATE
-                    putExtra(AppWidgetManager.EXTRA_APPWIDGET_IDS, overviewIds)
-                }
-                context.sendBroadcast(intent)
-            }
-
-            // 3. Cập nhật SeaZenProjectWidgetProvider (Tiến độ dự án)
-            val projectIds = widgetManager.getAppWidgetIds(ComponentName(context, SeaZenProjectWidgetProvider::class.java))
-            if (projectIds.isNotEmpty()) {
-                val intent = Intent(context, SeaZenProjectWidgetProvider::class.java).apply {
-                    action = AppWidgetManager.ACTION_APPWIDGET_UPDATE
-                    putExtra(AppWidgetManager.EXTRA_APPWIDGET_IDS, projectIds)
-                }
-                context.sendBroadcast(intent)
-                widgetManager.notifyAppWidgetViewDataChanged(projectIds, R.id.widget_project_list)
+                widgetManager.notifyAppWidgetViewDataChanged(widgetIds, R.id.widget_task_list)
             }
         } catch (_: Exception) {}
     }
@@ -214,8 +189,10 @@ class TaskRepository(private val context: Context) {
         }
     }
 
-    fun getSavedEmail(): String = prefs.getString("user_email", "sang.nguyen@seazen.com.vn") ?: ""
+    fun getSavedEmail(): String = prefs.getString("user_email", null)?.takeIf { it.isNotBlank() } ?: "sang.nguyen@seazen.com.vn"
     fun saveEmail(email: String) = prefs.edit().putString("user_email", email.trim()).apply()
+    fun getSavedUserName(): String = prefs.getString("user_name", null)?.takeIf { it.isNotBlank() } ?: "NGUYỄN HUỲNH VĂN SANG"
+    fun saveUserName(name: String) = prefs.edit().putString("user_name", name.trim()).apply()
 
     fun getSiteUrl(): String = prefs.getString("sp_site_url", "https://seazenvn.sharepoint.com/sites/ONESEAZEN") ?: "https://seazenvn.sharepoint.com/sites/ONESEAZEN"
     fun getListChiTietId(): String = prefs.getString("sp_list_chitiet_id", "fd83aa4a-a642-43c2-b2f0-d34079e850de") ?: "fd83aa4a-a642-43c2-b2f0-d34079e850de"
@@ -431,7 +408,7 @@ class TaskRepository(private val context: Context) {
     private suspend fun fetchRawChinh(siteUrl: String, chinhId: String, token: String): Pair<List<TaskChinhItem>, String?> {
         var activeToken = token
         var newTok: String? = null
-        val urlChinh = "$siteUrl/_api/web/lists(guid'$chinhId')/items?%24top=100&%24select=ID,Title,TenNguoiChiuTrachNhiem,NguoiChiuTrachNhiemEmail,NgayBatDau,NgayKetThuc,TienDo,PhongBan,PhanLoaiTask,PhanLoaiViec,TrangThai,TenNguoiGiaoViec,NguoiGiaoViecEmail,TenNguoiNhanThongBao,NguoiNhanThongBaoEmail,NgayHanMoi,LyDoDoiHan,TrangThaiDuyetHan&%24orderby=ID%20desc"
+        val urlChinh = "$siteUrl/_api/web/lists(guid'$chinhId')/items?%24top=2000&%24select=ID,Title,TenNguoiChiuTrachNhiem,NguoiChiuTrachNhiemEmail,NgayBatDau,NgayKetThuc,TienDo,PhongBan,PhanLoaiTask,PhanLoaiViec,TrangThai,TenNguoiGiaoViec,NguoiGiaoViecEmail,TenNguoiNhanThongBao,NguoiNhanThongBaoEmail,NgayHanMoi,LyDoDoiHan,TrangThaiDuyetHan&%24orderby=ID%20desc"
         var req = Request.Builder()
             .url(urlChinh)
             .header("Authorization", "Bearer $activeToken")
@@ -504,7 +481,7 @@ class TaskRepository(private val context: Context) {
     private suspend fun fetchRawChiTiet(siteUrl: String, chitietId: String, token: String): Pair<List<TaskItem>, String?> {
         var activeToken = token
         var newTok: String? = null
-        val urlChiTiet = "$siteUrl/_api/web/lists(guid'$chitietId')/items?%24top=200&%24select=ID,Title,TaskChinhID/Id,TaskChinhID/Title,TaskChinhIDId,DaHoanThanh,TenNguoiThucHien,NguoiThucHienEmail,NgayBatDau,NgayKetThuc,Created&%24expand=TaskChinhID&%24orderby=ID%20desc"
+        val urlChiTiet = "$siteUrl/_api/web/lists(guid'$chitietId')/items?%24top=2000&%24select=ID,Title,TaskChinhID/Id,TaskChinhID/Title,TaskChinhIDId,DaHoanThanh,TenNguoiThucHien,NguoiThucHienEmail,NgayBatDau,NgayKetThuc,Created&%24expand=TaskChinhID&%24orderby=ID%20desc"
         var req = Request.Builder()
             .url(urlChiTiet)
             .header("Authorization", "Bearer $activeToken")
@@ -573,7 +550,7 @@ class TaskRepository(private val context: Context) {
 
     private suspend fun fetchRawUsers(siteUrl: String, phanquyenId: String, token: String): List<SeaZenUser> {
         return try {
-            val urlPhanQuyen = "$siteUrl/_api/web/lists(guid'$phanquyenId')/items?%24top=100&%24select=ID,Title,Email,ChucVu,PhongBan&%24orderby=Title%20asc"
+            val urlPhanQuyen = "$siteUrl/_api/web/lists(guid'$phanquyenId')/items?%24top=1000&%24select=ID,Title,Email,ChucVu,PhongBan&%24orderby=Title%20asc"
             val req = Request.Builder()
                 .url(urlPhanQuyen)
                 .header("Authorization", "Bearer $token")
@@ -726,7 +703,7 @@ class TaskRepository(private val context: Context) {
             if (ccName.isNotBlank()) addProperty("TenNguoiNhanThongBao", ccName.trim())
             if (ccEmail.isNotBlank()) addProperty("NguoiNhanThongBaoEmail", ccEmail.trim())
             if (startDate.isNotBlank()) addProperty("NgayBatDau", if (startDate.length == 10) "${startDate}T00:00:00Z" else startDate)
-            if (endDate.isNotBlank()) addProperty("NgayKetThuc", if (endDate.length == 10) "${endDate}T23:59:59Z" else endDate)
+            if (endDate.isNotBlank()) addProperty("NgayKetThuc", if (endDate.length == 10) "${endDate}T00:00:00Z" else endDate)
             addProperty("TienDo", 0)
             addProperty("TrangThai", "Chưa bắt đầu")
             addProperty("TrangThaiDuyetHan", "Không có")
@@ -872,7 +849,7 @@ class TaskRepository(private val context: Context) {
             addProperty("TenNguoiThucHien", assigneeName.trim())
             addProperty("NguoiThucHienEmail", assigneeEmail.trim())
             if (startDate.isNotBlank()) addProperty("NgayBatDau", if (startDate.length == 10) "${startDate}T00:00:00Z" else startDate)
-            if (endDate.isNotBlank()) addProperty("NgayKetThuc", if (endDate.length == 10) "${endDate}T23:59:59Z" else endDate)
+            if (endDate.isNotBlank()) addProperty("NgayKetThuc", if (endDate.length == 10) "${endDate}T00:00:00Z" else endDate)
             addProperty("DaHoanThanh", false)
         }
 

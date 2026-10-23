@@ -177,6 +177,15 @@ object AppStrings {
         val labelBelongsToMainTask: String
         val placeholderDetailTask: String
 
+        // Landing & Login
+        val landingTitle: String
+        val landingSubtitle: String
+        val btnGetStarted: String
+        val loginScreenTitle: String
+        val orSignInWith: String
+        val btnSignInWithMicrosoft: String
+        val noSubtasks: String
+
         // Login & MFA
         val mfaTitle: String
         val mfaDesc: String
@@ -361,6 +370,15 @@ object AppStrings {
         override val labelBelongsToMainTask = "Thuộc công việc chính nào *"
         override val placeholderDetailTask = "Nhập công việc chi tiết"
 
+        // Landing & Login
+        override val landingTitle = "SZ TASK"
+        override val landingSubtitle = "Hệ thống quản lý công việc & dự án SeaZen"
+        override val btnGetStarted = "Bắt đầu ngay"
+        override val loginScreenTitle = "Đăng nhập tài khoản"
+        override val orSignInWith = "Hoặc đăng nhập bằng"
+        override val btnSignInWithMicrosoft = "Tài khoản Microsoft 365"
+        override val noSubtasks = "Chưa có công việc chi tiết nào"
+
         // Login & MFA
         override val mfaTitle = "Xác thực 2 lớp Microsoft (MFA)"
         override val mfaDesc = "Mã xác thực đã được sao chép. Bấm nút bên dưới để mở trang đăng nhập Microsoft."
@@ -544,6 +562,15 @@ object AppStrings {
         override val placeholderSelectParentProject = "Select main project"
         override val labelBelongsToMainTask = "Belongs to main project *"
         override val placeholderDetailTask = "Enter detailed task description"
+
+        // Landing & Login
+        override val landingTitle = "SZ TASK"
+        override val landingSubtitle = "SeaZen Task & Project Management"
+        override val btnGetStarted = "Get Started"
+        override val loginScreenTitle = "Login to your Account"
+        override val orSignInWith = "Or sign in with"
+        override val btnSignInWithMicrosoft = "Microsoft 365 Account"
+        override val noSubtasks = "No subtasks available"
 
         // Login & MFA
         override val mfaTitle = "Microsoft Multi-Factor Authentication (MFA)"

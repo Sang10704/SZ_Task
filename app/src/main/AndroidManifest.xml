@@ -35,41 +35,11 @@
                 android:resource="@xml/seazen_widget_info" />
         </receiver>
 
-        <!-- AppWidget Provider 2: Thống Kê Tổng Quan -->
-        <receiver
-            android:name=".widget.SeaZenOverviewWidgetProvider"
-            android:exported="true">
-            <intent-filter>
-                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
-            </intent-filter>
-            <meta-data
-                android:name="android.appwidget.provider"
-                android:resource="@xml/seazen_overview_widget_info" />
-        </receiver>
-
-        <!-- AppWidget Provider 3: Tiến Độ Dự Án -->
-        <receiver
-            android:name=".widget.SeaZenProjectWidgetProvider"
-            android:exported="true">
-            <intent-filter>
-                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
-            </intent-filter>
-            <meta-data
-                android:name="android.appwidget.provider"
-                android:resource="@xml/seazen_project_widget_info" />
-        </receiver>
-
         <!-- RemoteViews Services for List Widgets -->
         <service
             android:name=".widget.SeaZenWidgetService"
             android:permission="android.permission.BIND_REMOTEVIEWS"
             android:exported="false" />
-
-        <service
-            android:name=".widget.SeaZenProjectWidgetService"
-            android:permission="android.permission.BIND_REMOTEVIEWS"
-            android:exported="false" />
-
     </application>
 
 </manifest>

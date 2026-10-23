@@ -20,7 +20,9 @@ class SeaZenWidgetService : RemoteViewsService() {
 
 class SeaZenWidgetViewsFactory(private val context: Context) : RemoteViewsService.RemoteViewsFactory {
     private var taskList: List<TaskItem> = emptyList()
+    private var projectMap: Map<Long, com.seazen.task.data.TaskChinhItem> = emptyMap()
     private var currentUserEmail: String = ""
+    private var currentUserName: String = ""
     private var activeDate: LocalDate = LocalDate.now()
 
     override fun onCreate() {
@@ -36,7 +38,10 @@ class SeaZenWidgetViewsFactory(private val context: Context) : RemoteViewsServic
             val repository = TaskRepository(context)
             val prefs = context.getSharedPreferences("seazen_task_prefs", Context.MODE_PRIVATE)
             val allTasks = repository.tasks.value
+            val allTaskChinh = repository.taskChinhList.value
+            projectMap = allTaskChinh.associateBy { it.id }
             currentUserEmail = repository.getSavedEmail().lowercase().trim()
+            currentUserName = repository.getSavedUserName().lowercase().trim()
 
             // Lấy ngày đang được chọn trên lịch widget (mặc định hôm nay)
             val dateStr = prefs.getString("widget_selected_date", null)
@@ -84,21 +89,20 @@ class SeaZenWidgetViewsFactory(private val context: Context) : RemoteViewsServic
         val isOverdue = task.isOverdue(today) && !task.isCompleted
         val isUrgent = task.safePriority.lowercase() in listOf("urgent", "khẩn cấp", "high") && !task.isCompleted
 
-        // 1. Phân quyền và Trạng thái bên trái
+        // 1. Hình tròn đầu mỗi item: nếu xong thì fill màu xanh, nếu chưa xong thì không fill
+        views.setViewVisibility(R.id.widget_item_check_btn, View.VISIBLE)
+        views.setViewVisibility(R.id.widget_item_lock_icon, View.GONE)
+
+        if (task.isCompleted) {
+            views.setImageViewResource(R.id.widget_item_check_btn, R.drawable.ic_widget_check_on)
+            views.setTextColor(R.id.widget_item_title, Color.parseColor("#94A3B8"))
+        } else {
+            views.setImageViewResource(R.id.widget_item_check_btn, R.drawable.ic_widget_check_off)
+            views.setTextColor(R.id.widget_item_title, Color.parseColor("#0F172A"))
+        }
+
         if (isMine) {
-            // Việc của người dùng: Hiện checkbox tương tác
-            views.setViewVisibility(R.id.widget_item_check_btn, View.VISIBLE)
-            views.setViewVisibility(R.id.widget_item_lock_icon, View.GONE)
-
-            if (task.isCompleted) {
-                views.setImageViewResource(R.id.widget_item_check_btn, R.drawable.ic_widget_check_on)
-                views.setTextColor(R.id.widget_item_title, Color.parseColor("#94A3B8"))
-            } else {
-                views.setImageViewResource(R.id.widget_item_check_btn, R.drawable.ic_widget_check_off)
-                views.setTextColor(R.id.widget_item_title, Color.parseColor("#0F172A"))
-            }
-
-            // Gán intent cho nút Checkbox để tick xong việc
+            // Task của mình: bấm vào hình tròn để chuyển đổi trạng thái hoàn thành
             val checkIntent = Intent().apply {
                 putExtra(SeaZenWidgetProvider.EXTRA_TASK_ID, task.id)
                 putExtra(SeaZenWidgetProvider.EXTRA_ACTION_TYPE, SeaZenWidgetProvider.ACTION_TYPE_TOGGLE)
@@ -106,28 +110,26 @@ class SeaZenWidgetViewsFactory(private val context: Context) : RemoteViewsServic
             }
             views.setOnClickFillInIntent(R.id.widget_item_check_btn, checkIntent)
         } else {
-            // Việc của người khác: Khóa thao tác (Disable/Read-only)
-            views.setViewVisibility(R.id.widget_item_check_btn, View.GONE)
-            views.setViewVisibility(R.id.widget_item_lock_icon, View.VISIBLE)
-            views.setTextColor(R.id.widget_item_title, Color.parseColor("#334155"))
-
-            // Nhấn vào biểu tượng khóa hiển thị thông báo chỉ xem
+            // Task của người khác: bấm vào thông báo quyền chỉ xem
             val lockIntent = Intent().apply {
                 putExtra(SeaZenWidgetProvider.EXTRA_TASK_ID, task.id)
                 putExtra(SeaZenWidgetProvider.EXTRA_ACTION_TYPE, SeaZenWidgetProvider.ACTION_TYPE_LOCKED)
-                putExtra(SeaZenWidgetProvider.EXTRA_ASSIGNEE, task.safeAssigneeName)
+                putExtra(SeaZenWidgetProvider.EXTRA_ASSIGNEE, task.safeAssigneeName.ifBlank { "nhân sự khác" })
             }
-            views.setOnClickFillInIntent(R.id.widget_item_lock_icon, lockIntent)
+            views.setOnClickFillInIntent(R.id.widget_item_check_btn, lockIntent)
         }
 
-        // 2. Tiêu đề công việc
+        // 2. Header: Tiêu đề task chi tiết
         views.setTextViewText(R.id.widget_item_title, task.safeTitle)
 
-        // 3. Phụ đề: Giờ • Dự án • Tên người thực hiện
-        val timeDisplay = formatShortTime(task.safeEndDate)
-        val projDisplay = if (task.safeTaskChinhTitle.isNotBlank()) task.safeTaskChinhTitle else "Kế hoạch"
-        val assigneeDisplay = if (task.safeAssigneeName.isNotBlank()) task.safeAssigneeName else "Chưa gán"
-        views.setTextViewText(R.id.widget_item_sub, "$timeDisplay • $projDisplay • $assigneeDisplay")
+        // 3. Subtitle (phần chữ mờ mờ phía dưới): Tên của task chính
+        val parentTitle = if (task.safeTaskChinhTitle.isNotBlank()) {
+            task.safeTaskChinhTitle
+        } else {
+            val parent = projectMap[task.taskChinhId ?: -1L]
+            parent?.safeTitle?.takeIf { it.isNotBlank() } ?: "Kế hoạch chung"
+        }
+        views.setTextViewText(R.id.widget_item_sub, parentTitle)
 
         // 4. Nhãn Tag bên phải
         when {
@@ -171,7 +173,7 @@ class SeaZenWidgetViewsFactory(private val context: Context) : RemoteViewsServic
     }
 
     private fun isMyTask(task: TaskItem): Boolean {
-        return SeaZenWidgetProvider.isMyTask(task, currentUserEmail)
+        return SeaZenWidgetProvider.isMyTask(task, currentUserEmail, currentUserName)
     }
 
     override fun getLoadingView(): RemoteViews? = null
