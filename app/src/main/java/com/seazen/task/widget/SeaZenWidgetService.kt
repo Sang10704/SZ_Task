@@ -35,7 +35,7 @@ class SeaZenWidgetViewsFactory(private val context: Context) : RemoteViewsServic
 
     private fun loadData() {
         try {
-            val repository = TaskRepository(context)
+            val repository = TaskRepository.getInstance(context)
             val prefs = context.getSharedPreferences("seazen_task_prefs", Context.MODE_PRIVATE)
             val allTasks = repository.tasks.value
             val allTaskChinh = repository.taskChinhList.value
@@ -70,7 +70,7 @@ class SeaZenWidgetViewsFactory(private val context: Context) : RemoteViewsServic
                     .thenBy { it.safeEndDate }
             )
         } catch (_: Exception) {
-            taskList = emptyList()
+            // Giữ nguyên taskList để tránh chớp màn hình hoặc mất dữ liệu tạm thời
         }
     }
 

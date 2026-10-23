@@ -81,10 +81,17 @@ data class TaskChinhItem(
     val safeTrangThaiDuyetHan: String get() = trangThaiDuyetHan ?: ""
     val safeGhiChu: String get() = ghiChu ?: ""
 
+    // An toàn tuyệt đối với Gson UnsafeAllocator: Tránh 'by lazy' delegate gây NullPointerException
+    val parsedStartDate: LocalDate? get() = parseLocalDate(safeStartDate)
+    val parsedEndDate: LocalDate? get() {
+        val s = parsedStartDate
+        val e = parseLocalDate(safeEndDate)
+        return if (s != null && e != null && e.isBefore(s)) s else e
+    }
+
     fun isActiveOn(date: LocalDate): Boolean {
-        val start = parseLocalDate(safeStartDate)
-        val rawEnd = parseLocalDate(safeEndDate)
-        val end = if (start != null && rawEnd != null && rawEnd.isBefore(start)) start else rawEnd
+        val start = parsedStartDate
+        val end = parsedEndDate
 
         return when {
             start != null && end != null -> !date.isBefore(start) && !date.isAfter(end)
@@ -102,7 +109,7 @@ data class TaskChinhItem(
 
     fun isOverdue(today: LocalDate = LocalDate.now()): Boolean {
         if (safeProgress >= 100 || safeTrangThai.contains("Hoàn thành")) return false
-        val end = parseLocalDate(safeEndDate) ?: return false
+        val end = parsedEndDate ?: return false
         return end.isBefore(today)
     }
 }
@@ -132,10 +139,17 @@ data class TaskItem(
     val safePhongBan: String get() = phongBan ?: ""
     val safeGhiChu: String get() = ghiChu ?: ""
 
+    // An toàn tuyệt đối với Gson UnsafeAllocator: Tránh 'by lazy' delegate gây NullPointerException
+    val parsedStartDate: LocalDate? get() = parseLocalDate(safeStartDate)
+    val parsedEndDate: LocalDate? get() {
+        val s = parsedStartDate
+        val e = parseLocalDate(safeEndDate)
+        return if (s != null && e != null && e.isBefore(s)) s else e
+    }
+
     fun isActiveOn(date: LocalDate): Boolean {
-        val start = parseLocalDate(safeStartDate)
-        val rawEnd = parseLocalDate(safeEndDate)
-        val end = if (start != null && rawEnd != null && rawEnd.isBefore(start)) start else rawEnd
+        val start = parsedStartDate
+        val end = parsedEndDate
 
         return when {
             start != null && end != null -> !date.isBefore(start) && !date.isAfter(end)
@@ -147,7 +161,7 @@ data class TaskItem(
 
     fun isOverdue(today: LocalDate = LocalDate.now()): Boolean {
         if (isCompleted) return false
-        val end = parseLocalDate(safeEndDate) ?: parseLocalDate(safeStartDate) ?: return false
+        val end = parsedEndDate ?: parsedStartDate ?: return false
         return end.isBefore(today)
     }
 }

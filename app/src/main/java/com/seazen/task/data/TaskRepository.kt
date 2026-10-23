@@ -23,15 +23,33 @@ import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import java.time.LocalDate
+import java.io.File
+import java.io.BufferedReader
+import java.io.BufferedWriter
+import java.io.FileReader
+import java.io.FileWriter
 import java.util.concurrent.TimeUnit
 
 class TaskRepository(private val context: Context) {
+    companion object {
+        @Volatile
+        private var instance: TaskRepository? = null
+
+        fun getInstance(context: Context): TaskRepository {
+            return instance ?: synchronized(this) {
+                instance ?: TaskRepository(context.applicationContext).also { instance = it }
+            }
+        }
+    }
+
     private val prefs: SharedPreferences = context.getSharedPreferences("seazen_task_prefs", Context.MODE_PRIVATE)
     private val gson = Gson()
     private val httpClient = OkHttpClient.Builder()
         .connectTimeout(15, TimeUnit.SECONDS)
         .readTimeout(15, TimeUnit.SECONDS)
         .build()
+
+    private val fileLock = Any()
 
     // Danh sach Task Chi Tiet (Viec con)
     private val _tasks = MutableStateFlow<List<TaskItem>>(emptyList())
@@ -45,45 +63,112 @@ class TaskRepository(private val context: Context) {
     private val _users = MutableStateFlow<List<SeaZenUser>>(emptyList())
     val users: StateFlow<List<SeaZenUser>> = _users.asStateFlow()
 
+    // Trang thai dong bo SharePoint truc tiep
+    private val _isSyncing = MutableStateFlow(false)
+    val isSyncing: StateFlow<Boolean> = _isSyncing.asStateFlow()
+
     init {
         loadCachedData()
     }
 
+    private fun getCacheFile(filename: String): File {
+        return File(context.filesDir, filename)
+    }
+
+    private fun <T> saveListToFile(filename: String, list: List<T>) {
+        synchronized(fileLock) {
+            try {
+                val file = getCacheFile(filename)
+                val tempFile = File(context.filesDir, "$filename.tmp")
+                BufferedWriter(FileWriter(tempFile)).use { writer ->
+                    gson.toJson(list, writer)
+                }
+                if (tempFile.exists()) {
+                    if (file.exists()) file.delete()
+                    tempFile.renameTo(file)
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        }
+    }
+
+    private fun <T> loadListFromFile(filename: String, type: java.lang.reflect.Type): List<T>? {
+        synchronized(fileLock) {
+            return try {
+                val file = getCacheFile(filename)
+                if (!file.exists()) null
+                else {
+                    BufferedReader(FileReader(file)).use { reader ->
+                        gson.fromJson<List<T>>(reader, type)
+                    }
+                }
+            } catch (_: Exception) {
+                null
+            }
+        }
+    }
+
     fun loadCachedData() {
         try {
-            val rawTasks = prefs.getString("tasks_json", null)
-            if (!rawTasks.isNullOrBlank()) {
-                val type = object : TypeToken<List<TaskItem>>() {}.type
-                val parsed: List<TaskItem>? = gson.fromJson(rawTasks, type)
-                _tasks.value = parsed?.filterNotNull() ?: emptyList()
+            val taskType = object : TypeToken<List<TaskItem>>() {}.type
+            val fromFile = loadListFromFile<TaskItem>("tasks_cache.json", taskType)
+            if (!fromFile.isNullOrEmpty()) {
+                _tasks.value = fromFile.filterNotNull()
             } else {
-                _tasks.value = emptyList()
+                val rawTasks = prefs.getString("tasks_json", null)
+                if (!rawTasks.isNullOrBlank()) {
+                    val parsed: List<TaskItem>? = gson.fromJson(rawTasks, taskType)
+                    val list = parsed?.filterNotNull() ?: emptyList()
+                    if (list.isNotEmpty()) {
+                        _tasks.value = list
+                        saveListToFile("tasks_cache.json", list)
+                    }
+                } else {
+                    _tasks.value = emptyList()
+                }
             }
         } catch (_: Exception) {
             _tasks.value = emptyList()
         }
 
         try {
-            val rawChinh = prefs.getString("task_chinh_json", null)
-            if (!rawChinh.isNullOrBlank()) {
-                val type = object : TypeToken<List<TaskChinhItem>>() {}.type
-                val parsed: List<TaskChinhItem>? = gson.fromJson(rawChinh, type)
-                _taskChinhList.value = parsed?.filterNotNull() ?: emptyList()
+            val chinhType = object : TypeToken<List<TaskChinhItem>>() {}.type
+            val fromFile = loadListFromFile<TaskChinhItem>("task_chinh_cache.json", chinhType)
+            if (!fromFile.isNullOrEmpty()) {
+                _taskChinhList.value = fromFile.filterNotNull()
             } else {
-                _taskChinhList.value = emptyList()
+                val rawChinh = prefs.getString("task_chinh_json", null)
+                if (!rawChinh.isNullOrBlank()) {
+                    val parsed: List<TaskChinhItem>? = gson.fromJson(rawChinh, chinhType)
+                    val list = parsed?.filterNotNull() ?: emptyList()
+                    if (list.isNotEmpty()) {
+                        _taskChinhList.value = list
+                        saveListToFile("task_chinh_cache.json", list)
+                    }
+                } else {
+                    _taskChinhList.value = emptyList()
+                }
             }
         } catch (_: Exception) {
             _taskChinhList.value = emptyList()
         }
 
         try {
-            val rawUsers = prefs.getString("users_json", null)
-            if (!rawUsers.isNullOrBlank()) {
-                val type = object : TypeToken<List<SeaZenUser>>() {}.type
-                val parsed: List<SeaZenUser>? = gson.fromJson(rawUsers, type)
-                _users.value = parsed?.filterNotNull() ?: getFallbackUsers()
+            val userType = object : TypeToken<List<SeaZenUser>>() {}.type
+            val fromFile = loadListFromFile<SeaZenUser>("users_cache.json", userType)
+            if (!fromFile.isNullOrEmpty()) {
+                _users.value = fromFile.filterNotNull()
             } else {
-                _users.value = getFallbackUsers()
+                val rawUsers = prefs.getString("users_json", null)
+                if (!rawUsers.isNullOrBlank()) {
+                    val parsed: List<SeaZenUser>? = gson.fromJson(rawUsers, userType)
+                    val list = parsed?.filterNotNull() ?: getFallbackUsers()
+                    _users.value = list
+                    saveListToFile("users_cache.json", list)
+                } else {
+                    _users.value = getFallbackUsers()
+                }
             }
         } catch (_: Exception) {
             _users.value = getFallbackUsers()
@@ -92,34 +177,39 @@ class TaskRepository(private val context: Context) {
 
     fun saveTasks(newTasks: List<TaskItem>) {
         _tasks.value = newTasks
-        prefs.edit().putString("tasks_json", gson.toJson(newTasks)).apply()
+        saveListToFile("tasks_cache.json", newTasks)
+        try {
+            if (newTasks.size <= 500) {
+                prefs.edit().putString("tasks_json", gson.toJson(newTasks)).apply()
+            } else {
+                prefs.edit().remove("tasks_json").apply()
+            }
+        } catch (_: Exception) {}
         notifyWidgetUpdate()
     }
 
     fun saveTaskChinh(newList: List<TaskChinhItem>) {
         _taskChinhList.value = newList
-        prefs.edit().putString("task_chinh_json", gson.toJson(newList)).apply()
+        saveListToFile("task_chinh_cache.json", newList)
+        try {
+            if (newList.size <= 500) {
+                prefs.edit().putString("task_chinh_json", gson.toJson(newList)).apply()
+            } else {
+                prefs.edit().remove("task_chinh_json").apply()
+            }
+        } catch (_: Exception) {}
         notifyWidgetUpdate()
     }
 
     fun saveUsers(newUsers: List<SeaZenUser>) {
         _users.value = newUsers
+        saveListToFile("users_cache.json", newUsers)
         prefs.edit().putString("users_json", gson.toJson(newUsers)).apply()
     }
 
     fun notifyWidgetUpdate() {
         try {
-            val widgetManager = AppWidgetManager.getInstance(context)
             SeaZenWidgetProvider.notifyAllWidgets(context)
-            val widgetIds = widgetManager.getAppWidgetIds(ComponentName(context, SeaZenWidgetProvider::class.java))
-            if (widgetIds.isNotEmpty()) {
-                val intent = Intent(context, SeaZenWidgetProvider::class.java).apply {
-                    action = AppWidgetManager.ACTION_APPWIDGET_UPDATE
-                    putExtra(AppWidgetManager.EXTRA_APPWIDGET_IDS, widgetIds)
-                }
-                context.sendBroadcast(intent)
-                widgetManager.notifyAppWidgetViewDataChanged(widgetIds, R.id.widget_task_list)
-            }
         } catch (_: Exception) {}
     }
 
@@ -342,8 +432,10 @@ class TaskRepository(private val context: Context) {
     // DONG BO DA LUONG TANG TOC TU SHAREPOINT (SSOT)
     // ==========================================
     suspend fun fetchAllFromSharePoint(token: String? = null): Result<Unit> = withContext(Dispatchers.IO) {
+        _isSyncing.value = true
         var activeToken = token?.trim()?.ifBlank { null } ?: getValidToken() ?: ""
         if (activeToken.isBlank()) {
+            _isSyncing.value = false
             return@withContext Result.failure(Exception("Chua co phien lam viec."))
         }
 
@@ -402,41 +494,49 @@ class TaskRepository(private val context: Context) {
             Result.success(Unit)
         } catch (e: Exception) {
             Result.failure(e)
+        } finally {
+            _isSyncing.value = false
         }
     }
 
     private suspend fun fetchRawChinh(siteUrl: String, chinhId: String, token: String): Pair<List<TaskChinhItem>, String?> {
         var activeToken = token
         var newTok: String? = null
-        val urlChinh = "$siteUrl/_api/web/lists(guid'$chinhId')/items?%24top=2000&%24select=ID,Title,TenNguoiChiuTrachNhiem,NguoiChiuTrachNhiemEmail,NgayBatDau,NgayKetThuc,TienDo,PhongBan,PhanLoaiTask,PhanLoaiViec,TrangThai,TenNguoiGiaoViec,NguoiGiaoViecEmail,TenNguoiNhanThongBao,NguoiNhanThongBaoEmail,NgayHanMoi,LyDoDoiHan,TrangThaiDuyetHan&%24orderby=ID%20desc"
-        var req = Request.Builder()
-            .url(urlChinh)
-            .header("Authorization", "Bearer $activeToken")
-            .header("Accept", "application/json;odata=verbose")
-            .build()
-        var resp = httpClient.newCall(req).execute()
-
-        if (resp.code == 401) {
-            resp.close()
-            val refreshed = forceRefreshToken()
-            if (refreshed != null) {
-                activeToken = refreshed
-                newTok = refreshed
-                req = Request.Builder()
-                    .url(urlChinh)
-                    .header("Authorization", "Bearer $activeToken")
-                    .header("Accept", "application/json;odata=verbose")
-                    .build()
-                resp = httpClient.newCall(req).execute()
-            }
-        }
-
+        var currentUrl: String? = "$siteUrl/_api/web/lists(guid'$chinhId')/items?%24top=1000&%24select=ID,Title,TenNguoiChiuTrachNhiem,NguoiChiuTrachNhiemEmail,NgayBatDau,NgayKetThuc,TienDo,PhongBan,PhanLoaiTask,PhanLoaiViec,TrangThai,TenNguoiGiaoViec,NguoiGiaoViecEmail,TenNguoiNhanThongBao,NguoiNhanThongBaoEmail,NgayHanMoi,LyDoDoiHan,TrangThaiDuyetHan&%24orderby=ID%20desc"
         val list = mutableListOf<TaskChinhItem>()
-        resp.use { r ->
-            if (r.isSuccessful) {
+
+        while (!currentUrl.isNullOrBlank() && list.size < 50000) {
+            var req = Request.Builder()
+                .url(currentUrl!!)
+                .header("Authorization", "Bearer $activeToken")
+                .header("Accept", "application/json;odata=verbose")
+                .build()
+            var resp = httpClient.newCall(req).execute()
+
+            if (resp.code == 401) {
+                resp.close()
+                val refreshed = forceRefreshToken()
+                if (refreshed != null) {
+                    activeToken = refreshed
+                    newTok = refreshed
+                    req = Request.Builder()
+                        .url(currentUrl!!)
+                        .header("Authorization", "Bearer $activeToken")
+                        .header("Accept", "application/json;odata=verbose")
+                        .build()
+                    resp = httpClient.newCall(req).execute()
+                }
+            }
+
+            var nextLink: String? = null
+            resp.use { r ->
+                if (!r.isSuccessful) {
+                    throw java.io.IOException("SharePoint Chinh error HTTP ${r.code}: ${r.message}")
+                }
                 val bodyStr = r.body?.string() ?: "{}"
                 val jsonRoot = gson.fromJson(bodyStr, JsonObject::class.java)
-                val results = jsonRoot.getAsJsonObject("d")?.getAsJsonArray("results") ?: JsonArray()
+                val dObj = jsonRoot.getAsJsonObject("d")
+                val results = dObj?.getAsJsonArray("results") ?: JsonArray()
                 for (el in results) {
                     if (el !is JsonObject) continue
                     val pb = el.get("PhongBan")?.takeIf { !it.isJsonNull }?.asString ?: "SeaZen Tech"
@@ -473,7 +573,9 @@ class TaskRepository(private val context: Context) {
                         )
                     )
                 }
+                nextLink = dObj?.get("__next")?.takeIf { !it.isJsonNull }?.asString
             }
+            currentUrl = nextLink
         }
         return Pair(list, newTok)
     }
@@ -481,35 +583,41 @@ class TaskRepository(private val context: Context) {
     private suspend fun fetchRawChiTiet(siteUrl: String, chitietId: String, token: String): Pair<List<TaskItem>, String?> {
         var activeToken = token
         var newTok: String? = null
-        val urlChiTiet = "$siteUrl/_api/web/lists(guid'$chitietId')/items?%24top=2000&%24select=ID,Title,TaskChinhID/Id,TaskChinhID/Title,TaskChinhIDId,DaHoanThanh,TenNguoiThucHien,NguoiThucHienEmail,NgayBatDau,NgayKetThuc,Created&%24expand=TaskChinhID&%24orderby=ID%20desc"
-        var req = Request.Builder()
-            .url(urlChiTiet)
-            .header("Authorization", "Bearer $activeToken")
-            .header("Accept", "application/json;odata=verbose")
-            .build()
-        var resp = httpClient.newCall(req).execute()
-
-        if (resp.code == 401) {
-            resp.close()
-            val refreshed = forceRefreshToken()
-            if (refreshed != null) {
-                activeToken = refreshed
-                newTok = refreshed
-                req = Request.Builder()
-                    .url(urlChiTiet)
-                    .header("Authorization", "Bearer $activeToken")
-                    .header("Accept", "application/json;odata=verbose")
-                    .build()
-                resp = httpClient.newCall(req).execute()
-            }
-        }
-
+        var currentUrl: String? = "$siteUrl/_api/web/lists(guid'$chitietId')/items?%24top=1000&%24select=ID,Title,TaskChinhID/Id,TaskChinhID/Title,TaskChinhIDId,DaHoanThanh,TenNguoiThucHien,NguoiThucHienEmail,NgayBatDau,NgayKetThuc,Created&%24expand=TaskChinhID&%24orderby=ID%20desc"
         val list = mutableListOf<TaskItem>()
-        resp.use { r ->
-            if (r.isSuccessful) {
+
+        while (!currentUrl.isNullOrBlank() && list.size < 50000) {
+            var req = Request.Builder()
+                .url(currentUrl!!)
+                .header("Authorization", "Bearer $activeToken")
+                .header("Accept", "application/json;odata=verbose")
+                .build()
+            var resp = httpClient.newCall(req).execute()
+
+            if (resp.code == 401) {
+                resp.close()
+                val refreshed = forceRefreshToken()
+                if (refreshed != null) {
+                    activeToken = refreshed
+                    newTok = refreshed
+                    req = Request.Builder()
+                        .url(currentUrl!!)
+                        .header("Authorization", "Bearer $activeToken")
+                        .header("Accept", "application/json;odata=verbose")
+                        .build()
+                    resp = httpClient.newCall(req).execute()
+                }
+            }
+
+            var nextLink: String? = null
+            resp.use { r ->
+                if (!r.isSuccessful) {
+                    throw java.io.IOException("SharePoint ChiTiet error HTTP ${r.code}: ${r.message}")
+                }
                 val bodyStr = r.body?.string() ?: "{}"
                 val jsonRoot = gson.fromJson(bodyStr, JsonObject::class.java)
-                val results = jsonRoot.getAsJsonObject("d")?.getAsJsonArray("results") ?: JsonArray()
+                val dObj = jsonRoot.getAsJsonObject("d")
+                val results = dObj?.getAsJsonArray("results") ?: JsonArray()
                 for (el in results) {
                     if (el !is JsonObject) continue
                     var tcTitle = ""
@@ -543,7 +651,9 @@ class TaskRepository(private val context: Context) {
                         )
                     )
                 }
+                nextLink = dObj?.get("__next")?.takeIf { !it.isJsonNull }?.asString
             }
+            currentUrl = nextLink
         }
         return Pair(list, newTok)
     }

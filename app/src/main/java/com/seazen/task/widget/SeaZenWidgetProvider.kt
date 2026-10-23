@@ -18,6 +18,7 @@ import com.seazen.task.ui.MainActivity
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.time.DayOfWeek
 import java.time.LocalDate
 
@@ -26,6 +27,17 @@ class SeaZenWidgetProvider : AppWidgetProvider() {
     override fun onUpdate(context: Context, appWidgetManager: AppWidgetManager, appWidgetIds: IntArray) {
         for (appWidgetId in appWidgetIds) {
             updateAppWidget(context, appWidgetManager, appWidgetId)
+        }
+        val pendingResult = goAsync()
+        CoroutineScope(Dispatchers.IO).launch {
+            try {
+                val repository = TaskRepository.getInstance(context)
+                repository.fetchAllFromSharePoint()
+                notifyAllWidgets(context)
+            } catch (_: Exception) {
+            } finally {
+                pendingResult.finish()
+            }
         }
     }
 
@@ -50,10 +62,16 @@ class SeaZenWidgetProvider : AppWidgetProvider() {
                     ).show()
                 } else if (actionType == ACTION_TYPE_TOGGLE && taskId > 0L) {
                     // Task của mình: Đánh dấu hoàn thành trực tiếp trên Widget
+                    val pendingResult = goAsync()
                     CoroutineScope(Dispatchers.IO).launch {
-                        val repository = TaskRepository(context.applicationContext)
-                        repository.toggleTaskCompletion(taskId)
-                        notifyAllWidgets(context)
+                        try {
+                            val repository = TaskRepository.getInstance(context)
+                            repository.toggleTaskCompletion(taskId)
+                            notifyAllWidgets(context)
+                        } catch (_: Exception) {
+                        } finally {
+                            pendingResult.finish()
+                        }
                     }
                 } else if (actionType == ACTION_TYPE_OPEN_DETAIL && taskId > 0L) {
                     // Mở app tới chi tiết công việc
@@ -95,10 +113,25 @@ class SeaZenWidgetProvider : AppWidgetProvider() {
             }
 
             ACTION_REFRESH_TODAY -> {
+                Toast.makeText(context, "Đang đồng bộ dữ liệu...", Toast.LENGTH_SHORT).show()
+                val pendingResult = goAsync()
                 CoroutineScope(Dispatchers.IO).launch {
-                    val repository = TaskRepository(context.applicationContext)
-                    repository.fetchAllFromSharePoint()
-                    notifyAllWidgets(context)
+                    try {
+                        val repository = TaskRepository.getInstance(context)
+                        val res = repository.fetchAllFromSharePoint()
+                        notifyAllWidgets(context)
+                        withContext(Dispatchers.Main) {
+                            if (res.isSuccess) {
+                                val count = repository.tasks.value.size
+                                Toast.makeText(context, "Đã đồng bộ: $count công việc", Toast.LENGTH_SHORT).show()
+                            } else {
+                                Toast.makeText(context, "Không thể kết nối SharePoint", Toast.LENGTH_SHORT).show()
+                            }
+                        }
+                    } catch (_: Exception) {
+                    } finally {
+                        pendingResult.finish()
+                    }
                 }
             }
 
@@ -155,9 +188,16 @@ class SeaZenWidgetProvider : AppWidgetProvider() {
             val taskEmail = task.safeAssigneeEmail.trim().lowercase()
             val taskName = task.safeAssigneeName.trim().lowercase()
 
-            // 1. So khớp Email nếu task có email
+            // 1. So khớp Email nếu task có email (hỗ trợ cả username trước ký tự @)
             if (taskEmail.isNotBlank()) {
-                return taskEmail == myEmail || taskEmail.contains(myEmail) || myEmail.contains(taskEmail)
+                if (taskEmail == myEmail || taskEmail.contains(myEmail) || myEmail.contains(taskEmail)) {
+                    return true
+                }
+                val myUser = myEmail.substringBefore("@")
+                val taskUser = taskEmail.substringBefore("@")
+                if (myUser.isNotBlank() && taskUser.isNotBlank() && myUser == taskUser) {
+                    return true
+                }
             }
 
             // 2. Nếu task không có email, so khớp Họ tên
@@ -176,7 +216,7 @@ class SeaZenWidgetProvider : AppWidgetProvider() {
 
         fun updateAppWidget(context: Context, appWidgetManager: AppWidgetManager, appWidgetId: Int) {
             try {
-                val repository = TaskRepository(context)
+                val repository = TaskRepository.getInstance(context)
                 val prefs = context.getSharedPreferences("seazen_task_prefs", Context.MODE_PRIVATE)
                 val allTasks = repository.tasks.value
                 val currentUserEmail = repository.getSavedEmail().lowercase().trim()
@@ -295,7 +335,7 @@ class SeaZenWidgetProvider : AppWidgetProvider() {
                 // 5. Cấu hình Adapter danh sách công việc
                 val serviceIntent = Intent(context, SeaZenWidgetService::class.java).apply {
                     putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, appWidgetId)
-                    data = Uri.parse(toUri(Intent.URI_INTENT_SCHEME))
+                    data = Uri.parse("widget://seazen/tasks/$appWidgetId")
                 }
                 views.setRemoteAdapter(R.id.widget_task_list, serviceIntent)
                 views.setEmptyView(R.id.widget_task_list, R.id.widget_empty_view)

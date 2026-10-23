@@ -80,7 +80,7 @@ class MainActivity : ComponentActivity() {
             android.os.Process.killProcess(android.os.Process.myPid())
         }
 
-        val repository = TaskRepository(applicationContext)
+        val repository = TaskRepository.getInstance(applicationContext)
 
         setContent {
             var appLang by remember { mutableStateOf(repository.getAppLanguage()) }
@@ -121,7 +121,7 @@ class MainActivity : ComponentActivity() {
     override fun onResume() {
         super.onResume()
         try {
-            val repository = TaskRepository(applicationContext)
+            val repository = TaskRepository.getInstance(applicationContext)
             repository.notifyWidgetUpdate()
         } catch (_: Exception) {}
     }
@@ -296,12 +296,13 @@ fun MainContainerScreen(
     var viewingTask by remember { mutableStateOf<TaskItem?>(null) }
     var viewingProject by remember { mutableStateOf<TaskChinhItem?>(null) }
     var isRefreshing by remember { mutableStateOf(false) }
+    var isTabLoading by remember { mutableStateOf(false) }
 
-    // Tu dong dong bo SharePoint khi mo ung dung
-    LaunchedEffect(Unit) {
-        repository.fetchAllFromSharePoint()
-    }
+    // Phản hồi tức thì cho mục tiêu từ Widget
+    var pendingWidgetTaskId by remember { mutableStateOf<Long?>(null) }
+    var pendingWidgetProjectId by remember { mutableStateOf<Long?>(null) }
 
+    val isSyncing by repository.isSyncing.collectAsState()
     val tasks by repository.tasks.collectAsState()
     val taskChinhList by repository.taskChinhList.collectAsState()
     val users by repository.users.collectAsState()
@@ -314,30 +315,63 @@ fun MainContainerScreen(
     }
     val currentUserName = curUser?.name ?: repository.getSavedUserName()
 
-    // Xử lý sự kiện mở từ Widget
+    // Tu dong dong bo SharePoint khi mo ung dung
+    LaunchedEffect(Unit) {
+        repository.fetchAllFromSharePoint()
+    }
+
+    // Phản hồi chuyển trang tức thì trên Navbar kèm vòng xoay tải dữ liệu mượt mà
+    LaunchedEffect(selectedTab) {
+        kotlinx.coroutines.delay(60)
+        isTabLoading = false
+    }
+
+    // Xử lý sự kiện mở từ Widget tức thì, lập tức chuyển trang không bị đơ
     val currentWidgetIntent = intentState.value
-    LaunchedEffect(currentWidgetIntent, tasks, taskChinhList) {
+    LaunchedEffect(currentWidgetIntent) {
         val targetIntent = currentWidgetIntent ?: return@LaunchedEffect
         val openTaskId = targetIntent.getLongExtra("open_task_id", -1L)
         val openProjectId = targetIntent.getLongExtra("open_project_id", -1L)
         val openTab = targetIntent.getIntExtra("open_tab", -1)
         val openCreate = targetIntent.getBooleanExtra("open_create_task", false)
 
-        if (openTaskId > 0) {
-            tasks.find { it.id == openTaskId }?.let { viewingTask = it }
-        }
-        if (openProjectId > 0) {
-            taskChinhList.find { it.id == openProjectId }?.let { viewingProject = it }
-        }
+        // Chuyển trang đích NGAY LẬP TỨC
         if (openTab in 0..3) {
             selectedTab = openTab
+        } else if (openProjectId > 0L) {
+            selectedTab = 1
+            pendingWidgetProjectId = openProjectId
+        } else if (openTaskId > 0L) {
+            selectedTab = 0
+            pendingWidgetTaskId = openTaskId
         }
+
         if (openCreate) {
             val dateStr = targetIntent.getStringExtra("target_create_date")
             targetCreateDate = parseLocalDate(dateStr) ?: LocalDate.now()
             showCreateBottomSheet = true
         }
+
         intentState.value = null
+    }
+
+    // Tự động mở Modal chi tiết khi dữ liệu từ Widget tải xong
+    LaunchedEffect(pendingWidgetTaskId, tasks) {
+        val targetId = pendingWidgetTaskId ?: return@LaunchedEffect
+        val found = tasks.find { it.id == targetId }
+        if (found != null) {
+            viewingTask = found
+            pendingWidgetTaskId = null
+        }
+    }
+
+    LaunchedEffect(pendingWidgetProjectId, taskChinhList) {
+        val targetId = pendingWidgetProjectId ?: return@LaunchedEffect
+        val found = taskChinhList.find { it.id == targetId }
+        if (found != null) {
+            viewingProject = found
+            pendingWidgetProjectId = null
+        }
     }
 
     BackHandler(enabled = viewingProject != null || viewingTask != null || showCreateBottomSheet) {
@@ -355,7 +389,12 @@ fun MainContainerScreen(
         bottomBar = {
             FloatingAppNavBar(
                 selectedTab = selectedTab,
-                onTabSelect = { selectedTab = it },
+                onTabSelect = { newTab ->
+                    if (newTab != selectedTab) {
+                        isTabLoading = true
+                        selectedTab = newTab
+                    }
+                },
                 onAddClick = {
                     targetCreateDate = LocalDate.now()
                     showCreateBottomSheet = true
@@ -377,35 +416,61 @@ fun MainContainerScreen(
                     .fillMaxSize()
                     .padding(innerPadding)
             ) {
-                when (selectedTab) {
-                    0 -> MyTasksTab(
-                        repository = repository,
-                        tasks = tasks,
-                        taskChinhList = taskChinhList,
-                        userEmail = userEmail,
-                        onTaskClick = { viewingTask = it },
-                        onProjectClick = { viewingProject = it }
-                    )
-                    1 -> DepartmentTab(
-                        repository = repository,
-                        tasks = tasks,
-                        taskChinhList = taskChinhList,
-                        userEmail = userEmail,
-                        onProjectClick = { viewingProject = it },
-                        onTaskClick = { viewingTask = it }
-                    )
-                    2 -> CalendarTab(
-                        repository = repository,
-                        tasks = tasks,
-                        taskChinhList = taskChinhList,
-                        userEmail = userEmail,
-                        onAddClick = { date ->
-                            targetCreateDate = date
-                            showCreateBottomSheet = true
-                        },
-                        onTaskClick = { viewingTask = it },
-                        onProjectClick = { viewingProject = it }
-                    )
+                if (isTabLoading || (isSyncing && tasks.isEmpty() && taskChinhList.isEmpty())) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .background(MaterialTheme.colorScheme.background),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Column(
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            CircularProgressIndicator(
+                                color = PrimaryPurple,
+                                strokeWidth = 3.dp,
+                                modifier = Modifier.size(36.dp)
+                            )
+                            Text(
+                                text = if (appLang == "en") "Loading data..." else "Đang tải dữ liệu...",
+                                fontSize = 12.5.sp,
+                                color = TextMuted,
+                                fontWeight = FontWeight.Medium
+                            )
+                        }
+                    }
+                } else {
+                    when (selectedTab) {
+                        0 -> MyTasksTab(
+                            repository = repository,
+                            tasks = tasks,
+                            taskChinhList = taskChinhList,
+                            userEmail = userEmail,
+                            onTaskClick = { viewingTask = it },
+                            onProjectClick = { viewingProject = it }
+                        )
+                        1 -> DepartmentTab(
+                            repository = repository,
+                            tasks = tasks,
+                            taskChinhList = taskChinhList,
+                            userEmail = userEmail,
+                            onProjectClick = { viewingProject = it },
+                            onTaskClick = { viewingTask = it }
+                        )
+                        2 -> CalendarTab(
+                            repository = repository,
+                            tasks = tasks,
+                            taskChinhList = taskChinhList,
+                            userEmail = userEmail,
+                            onAddClick = { date ->
+                                targetCreateDate = date
+                                showCreateBottomSheet = true
+                            },
+                            onTaskClick = { viewingTask = it },
+                            onProjectClick = { viewingProject = it }
+                        )
+                    }
                 }
             }
         } else {
@@ -414,13 +479,26 @@ fun MainContainerScreen(
                     .fillMaxSize()
                     .padding(innerPadding)
             ) {
-                SettingsTab(
-                    repository = repository,
-                    userEmail = userEmail,
-                    appLang = appLang,
-                    onSelectLang = onSelectLang,
-                    onLogout = onLogout
-                )
+                if (isTabLoading) {
+                    Box(
+                        modifier = Modifier.fillMaxSize(),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        CircularProgressIndicator(
+                            color = PrimaryPurple,
+                            strokeWidth = 3.dp,
+                            modifier = Modifier.size(36.dp)
+                        )
+                    }
+                } else {
+                    SettingsTab(
+                        repository = repository,
+                        userEmail = userEmail,
+                        appLang = appLang,
+                        onSelectLang = onSelectLang,
+                        onLogout = onLogout
+                    )
+                }
             }
         }
     }
@@ -898,15 +976,17 @@ fun MyTasksTab(
     var isSearchOpen by remember { mutableStateOf(false) }
     var searchQuery by remember { mutableStateOf("") }
 
-    val scopedTasks = remember(tasks, taskChinhList, userEmail, selectedScope) {
+    val projectMap = remember(taskChinhList) { taskChinhList.associateBy { it.id } }
+    val scopedTasks = remember(tasks, projectMap, userEmail, selectedScope) {
         when (selectedScope) {
             "PERSONAL" -> {
-                tasks.filter { com.seazen.task.widget.SeaZenWidgetProvider.isMyTask(it, userEmail, repository.getSavedUserName()) }
+                val savedName = repository.getSavedUserName()
+                tasks.filter { com.seazen.task.widget.SeaZenWidgetProvider.isMyTask(it, userEmail, savedName) }
             }
             "ALL" -> tasks
             else -> {
                 tasks.filter { t ->
-                    val parent = taskChinhList.find { it.id == t.taskChinhId }
+                    val parent = projectMap[t.taskChinhId]
                     parent?.safePhongBan.equals(selectedScope, ignoreCase = true)
                 }
             }
@@ -1249,7 +1329,13 @@ fun DepartmentTab(
     var selectedStatus by remember { mutableStateOf("ALL") }
     var searchQuery by remember { mutableStateOf("") }
 
-    val filteredProjects = remember(taskChinhList, tasks, selectedScope, selectedStatus, searchQuery, resolvedEmail) {
+    val tasksByProjectId = remember(tasks) { tasks.groupBy { it.taskChinhId } }
+    val unassignedTasksByTitle = remember(tasks) {
+        tasks.filter { it.taskChinhId == null && it.safeTaskChinhTitle.isNotBlank() }
+            .groupBy { it.safeTaskChinhTitle.lowercase().trim() }
+    }
+
+    val filteredProjects = remember(taskChinhList, tasksByProjectId, unassignedTasksByTitle, selectedScope, selectedStatus, searchQuery, resolvedEmail) {
         taskChinhList.filter { p ->
             val matchScope = when (selectedScope) {
                 "PERSONAL" -> {
@@ -1260,7 +1346,11 @@ fun DepartmentTab(
                 "ALL" -> true
                 else -> p.safePhongBan.equals(selectedScope, ignoreCase = true)
             }
-            val pTasks = tasks.filter { it.taskChinhId == p.id || (it.taskChinhId == null && it.safeTaskChinhTitle.isNotBlank() && it.safeTaskChinhTitle.equals(p.safeTitle, ignoreCase = true)) }
+            if (!matchScope) return@filter false
+
+            val byId = tasksByProjectId[p.id] ?: emptyList()
+            val byTitle = unassignedTasksByTitle[p.safeTitle.lowercase().trim()] ?: emptyList()
+            val pTasks = if (byTitle.isEmpty()) byId else byId + byTitle
             val pProg = p.computedProgress(pTasks)
             val isProjOverdue = p.isOverdue() && pProg < 100
             val matchStatus = when (selectedStatus) {
@@ -1269,11 +1359,13 @@ fun DepartmentTab(
                 "OVERDUE" -> isProjOverdue
                 else -> true
             }
+            if (!matchStatus) return@filter false
+
             val matchSearch = searchQuery.isBlank() ||
                     p.safeTitle.contains(searchQuery, ignoreCase = true) ||
                     p.safeResponsiblePerson.contains(searchQuery, ignoreCase = true) ||
                     p.safePhongBan.contains(searchQuery, ignoreCase = true)
-            matchScope && matchStatus && matchSearch
+            matchSearch
         }
     }
 
@@ -1683,9 +1775,12 @@ fun CalendarTab(
     var searchQuery by remember { mutableStateOf("") }
     var isSearchOpen by remember { mutableStateOf(false) }
 
-    val dayProjects = remember(taskChinhList, tasks, selectedDate, selectedScope, searchQuery, resolvedEmail) {
+    val projectMap = remember(taskChinhList) { taskChinhList.associateBy { it.id } }
+
+    val dayProjects = remember(taskChinhList, selectedDate, selectedScope, searchQuery, resolvedEmail) {
         taskChinhList.filter { p ->
             val active = p.isActiveOn(selectedDate)
+            if (!active) return@filter false
             val matchScope = when (selectedScope) {
                 "PERSONAL" -> {
                     p.safeResponsibleEmail.lowercase().contains(resolvedEmail) ||
@@ -1695,17 +1790,19 @@ fun CalendarTab(
                 "ALL" -> true
                 else -> p.safePhongBan.equals(selectedScope, ignoreCase = true)
             }
+            if (!matchScope) return@filter false
             val matchSearch = searchQuery.isBlank() ||
                     p.safeTitle.contains(searchQuery, ignoreCase = true) ||
                     p.safeResponsiblePerson.contains(searchQuery, ignoreCase = true) ||
                     p.safePhongBan.contains(searchQuery, ignoreCase = true)
-            active && matchScope && matchSearch
+            matchSearch
         }
     }
 
-    val dayTasks = remember(tasks, taskChinhList, selectedDate, selectedScope, searchQuery, resolvedEmail) {
+    val dayTasks = remember(tasks, projectMap, selectedDate, selectedScope, searchQuery, resolvedEmail) {
         tasks.filter { t ->
             val active = t.isActiveOn(selectedDate)
+            if (!active) return@filter false
             val matchScope = when (selectedScope) {
                 "PERSONAL" -> {
                     t.safeAssigneeEmail.lowercase().contains(resolvedEmail) ||
@@ -1713,15 +1810,16 @@ fun CalendarTab(
                 }
                 "ALL" -> true
                 else -> {
-                    val parent = taskChinhList.find { it.id == t.taskChinhId }
+                    val parent = projectMap[t.taskChinhId]
                     parent?.safePhongBan.equals(selectedScope, ignoreCase = true)
                 }
             }
+            if (!matchScope) return@filter false
             val matchSearch = searchQuery.isBlank() ||
                     t.safeTitle.contains(searchQuery, ignoreCase = true) ||
                     t.safeTaskChinhTitle.contains(searchQuery, ignoreCase = true) ||
                     t.safeAssigneeName.contains(searchQuery, ignoreCase = true)
-            active && matchScope && matchSearch
+            matchSearch
         }
     }
 
@@ -1842,6 +1940,38 @@ fun CalendarTab(
                     Spacer(modifier = Modifier.height(10.dp))
 
                     val monthGrid = remember(currentYearMonth) { CalendarUtils.getDaysInMonthGrid(currentYearMonth) }
+                    val monthSummaryMap = remember(monthGrid, tasks, projectMap, selectedScope, resolvedEmail) {
+                        val validDays = monthGrid.filterNotNull()
+                        if (validDays.isEmpty()) emptyMap<LocalDate, Triple<Int, Int, Boolean>>()
+                        else {
+                            val today = LocalDate.now()
+                            val scopedT = tasks.filter { t ->
+                                when (selectedScope) {
+                                    "PERSONAL" -> t.safeAssigneeEmail.lowercase().contains(resolvedEmail) || t.safeAssigneeName.lowercase().contains("sang")
+                                    "ALL" -> true
+                                    else -> {
+                                        val p = projectMap[t.taskChinhId]
+                                        p?.safePhongBan.equals(selectedScope, ignoreCase = true)
+                                    }
+                                }
+                            }
+                            val scopedP = taskChinhList.filter { p ->
+                                when (selectedScope) {
+                                    "PERSONAL" -> p.safeResponsibleEmail.lowercase().contains(resolvedEmail) || p.safeCreatorEmail.lowercase().contains(resolvedEmail) || p.safeResponsiblePerson.lowercase().contains("sang")
+                                    "ALL" -> true
+                                    else -> p.safePhongBan.equals(selectedScope, ignoreCase = true)
+                                }
+                            }
+                            validDays.associateWith { dayDate ->
+                                val tCount = scopedT.count { it.isActiveOn(dayDate) }
+                                val pCount = scopedP.count { it.isActiveOn(dayDate) }
+                                val hasOverdue = (tCount > 0 && scopedT.any { it.isActiveOn(dayDate) && it.isOverdue(today) }) ||
+                                                 (pCount > 0 && scopedP.any { it.isActiveOn(dayDate) && it.isOverdue(today) })
+                                Triple(tCount, pCount, hasOverdue)
+                            }
+                        }
+                    }
+
                     val rows = monthGrid.chunked(7)
                     rows.forEach { weekRow ->
                         Row(
@@ -1859,27 +1989,10 @@ fun CalendarTab(
                                     if (dayDate != null) {
                                         val isSelected = (dayDate == selectedDate)
                                         val isToday = (dayDate == LocalDate.now())
-                                        val taskCount = remember(tasks, dayDate, selectedScope, resolvedEmail) {
-                                            tasks.filter { it.isActiveOn(dayDate) }.count { t ->
-                                                when (selectedScope) {
-                                                    "PERSONAL" -> t.safeAssigneeEmail.lowercase().contains(resolvedEmail) || t.safeAssigneeName.lowercase().contains("sang")
-                                                    "ALL" -> true
-                                                    else -> {
-                                                        val p = taskChinhList.find { it.id == t.taskChinhId }
-                                                        p?.safePhongBan.equals(selectedScope, ignoreCase = true)
-                                                    }
-                                                }
-                                            }
-                                        }
-                                        val projectCount = remember(taskChinhList, dayDate, selectedScope, resolvedEmail) {
-                                            taskChinhList.filter { it.isActiveOn(dayDate) }.count { p ->
-                                                when (selectedScope) {
-                                                    "PERSONAL" -> p.safeResponsibleEmail.lowercase().contains(resolvedEmail) || p.safeCreatorEmail.lowercase().contains(resolvedEmail) || p.safeResponsiblePerson.lowercase().contains("sang")
-                                                    "ALL" -> true
-                                                    else -> p.safePhongBan.equals(selectedScope, ignoreCase = true)
-                                                }
-                                            }
-                                        }
+                                        val summary = monthSummaryMap[dayDate]
+                                        val taskCount = summary?.first ?: 0
+                                        val projectCount = summary?.second ?: 0
+                                        val hasOverdue = summary?.third ?: false
 
                                         Column(
                                             modifier = Modifier
@@ -1900,10 +2013,6 @@ fun CalendarTab(
                                                     else -> TextDark
                                                 }
                                             )
-                                            val hasOverdue = remember(tasks, taskChinhList, dayDate) {
-                                                tasks.filter { it.isActiveOn(dayDate) }.any { it.isOverdue() } ||
-                                                taskChinhList.filter { it.isActiveOn(dayDate) }.any { it.isOverdue() }
-                                            }
                                             if ((taskCount > 0 || projectCount > 0) && !isSelected) {
                                                 Box(
                                                     modifier = Modifier
@@ -3357,8 +3466,8 @@ fun CreateTaskBottomSheet(
         mutableStateOf(found)
     }
     var selectedTaskChinhId by remember { mutableStateOf<Long?>(taskChinhList.firstOrNull()?.id) }
-    var selectedTaskChinhTitle by remember { mutableStateOf(taskChinhList.firstOrNull()?.title ?: "") }
-    var expandedDropdownTaskChinh by remember { mutableStateOf(false) }
+    var selectedTaskChinhTitle by remember { mutableStateOf(taskChinhList.firstOrNull()?.safeTitle ?: "") }
+    var activeDropdown by remember { mutableStateOf<String?>(null) }
 
     // Main task / project fields
     var selectedResponsibleUser by remember(users, currentUserEmail) {
@@ -3395,11 +3504,9 @@ fun CreateTaskBottomSheet(
     var selectedDept by remember(personalDept) {
         mutableStateOf(if (deptOptions.contains(personalDept)) personalDept else "SeaZen Tech")
     }
-    var expandedDept by remember { mutableStateOf(false) }
 
     val phanLoaiTaskOptions = listOf("Phòng ban", "Công ty")
     var selectedPhanLoaiTask by remember { mutableStateOf("Phòng ban") }
-    var expandedPhanLoaiTask by remember { mutableStateOf(false) }
 
     val phanLoaiViecOptions = listOf(
         "Công việc tháng",
@@ -3419,7 +3526,6 @@ fun CreateTaskBottomSheet(
         "Yêu cầu khách hàng"
     )
     var selectedPhanLoaiViec by remember { mutableStateOf("Công việc tháng") }
-    var expandedPhanLoaiViec by remember { mutableStateOf(false) }
 
     ModalBottomSheet(
         onDismissRequest = onDismiss,
@@ -3499,48 +3605,19 @@ fun CreateTaskBottomSheet(
 
             if (isChildTaskMode) {
                 // CHẾ ĐỘ THÊM CÔNG VIỆC CON
-                Column {
-                    Text(text = str.labelBelongsToMainTask, fontSize = 12.sp, color = TextMuted)
-                    Spacer(modifier = Modifier.height(4.dp))
-                    Box(modifier = Modifier.fillMaxWidth()) {
-                        OutlinedCard(
-                            onClick = { expandedDropdownTaskChinh = true },
-                            modifier = Modifier.fillMaxWidth(),
-                            shape = RoundedCornerShape(8.dp)
-                        ) {
-                            Row(
-                                modifier = Modifier.fillMaxWidth().padding(12.dp),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Text(
-                                    text = if (selectedTaskChinhTitle.isNotBlank()) selectedTaskChinhTitle else str.placeholderSelectParentProject,
-                                    fontSize = 13.sp,
-                                    color = TextDark,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
-                                )
-                                Icon(Icons.Default.ArrowDropDown, contentDescription = null, tint = TextMuted)
-                            }
-                        }
-
-                        DropdownMenu(
-                            expanded = expandedDropdownTaskChinh,
-                            onDismissRequest = { expandedDropdownTaskChinh = false }
-                        ) {
-                            taskChinhList.forEach { tc ->
-                                DropdownMenuItem(
-                                    text = { Text(tc.safeTitle, fontSize = 13.sp) },
-                                    onClick = {
-                                        selectedTaskChinhId = tc.id
-                                        selectedTaskChinhTitle = tc.safeTitle
-                                        expandedDropdownTaskChinh = false
-                                    }
-                                )
-                            }
-                        }
-                    }
-                }
+                SearchableDropdown(
+                    label = "${str.labelBelongsToMainTask} *",
+                    selectedValue = selectedTaskChinhTitle,
+                    options = taskChinhList.map { it.safeTitle },
+                    onSelect = { chosenTitle ->
+                        selectedTaskChinhTitle = chosenTitle
+                        selectedTaskChinhId = taskChinhList.find { it.safeTitle == chosenTitle }?.id
+                    },
+                    placeholder = str.placeholderSelectParentProject,
+                    searchPlaceholder = "Tìm dự án chính...",
+                    expanded = (activeDropdown == "task_chinh"),
+                    onExpandedChange = { activeDropdown = if (it) "task_chinh" else null }
+                )
 
                 OutlinedTextField(
                     value = title,
@@ -3633,77 +3710,29 @@ fun CreateTaskBottomSheet(
                     shape = RoundedCornerShape(8.dp)
                 )
 
-                // Trường 2: Cấp giao việc * (Công ty, Phòng ban, Cá nhân)
-                Box(modifier = Modifier.fillMaxWidth()) {
-                    OutlinedCard(
-                        onClick = { expandedPhanLoaiTask = true },
-                        modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(8.dp)
-                    ) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth().padding(12.dp),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Column {
-                                Text(text = "${str.labelClassification} *", fontSize = 11.sp, color = TextMuted)
-                                Text(text = selectedPhanLoaiTask, fontSize = 13.sp, fontWeight = FontWeight.Medium, color = TextDark)
-                            }
-                            Icon(Icons.Default.ArrowDropDown, contentDescription = null, tint = TextMuted)
-                        }
-                    }
+                // Trường 2: Cấp giao việc * (Phòng ban, Công ty)
+                SearchableDropdown(
+                    label = "${str.labelClassification} *",
+                    selectedValue = selectedPhanLoaiTask,
+                    options = phanLoaiTaskOptions,
+                    onSelect = { selectedPhanLoaiTask = it },
+                    placeholder = "Chọn cấp giao việc...",
+                    searchPlaceholder = "Tìm cấp giao việc...",
+                    expanded = (activeDropdown == "phan_loai_task"),
+                    onExpandedChange = { activeDropdown = if (it) "phan_loai_task" else null }
+                )
 
-                    DropdownMenu(
-                        expanded = expandedPhanLoaiTask,
-                        onDismissRequest = { expandedPhanLoaiTask = false }
-                    ) {
-                        phanLoaiTaskOptions.forEach { opt ->
-                            DropdownMenuItem(
-                                text = { Text(opt, fontSize = 13.sp) },
-                                onClick = {
-                                    selectedPhanLoaiTask = opt
-                                    expandedPhanLoaiTask = false
-                                }
-                            )
-                        }
-                    }
-                }
-
-                // Trường 3: Phân loại công việc * (Kế hoạch, Định kỳ, Đột xuất, Dự án)
-                Box(modifier = Modifier.fillMaxWidth()) {
-                    OutlinedCard(
-                        onClick = { expandedPhanLoaiViec = true },
-                        modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(8.dp)
-                    ) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth().padding(12.dp),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Column {
-                                Text(text = "${str.labelJobNature} *", fontSize = 11.sp, color = TextMuted)
-                                Text(text = selectedPhanLoaiViec, fontSize = 13.sp, fontWeight = FontWeight.Medium, color = TextDark)
-                            }
-                            Icon(Icons.Default.ArrowDropDown, contentDescription = null, tint = TextMuted)
-                        }
-                    }
-
-                    DropdownMenu(
-                        expanded = expandedPhanLoaiViec,
-                        onDismissRequest = { expandedPhanLoaiViec = false }
-                    ) {
-                        phanLoaiViecOptions.forEach { opt ->
-                            DropdownMenuItem(
-                                text = { Text(opt, fontSize = 13.sp) },
-                                onClick = {
-                                    selectedPhanLoaiViec = opt
-                                    expandedPhanLoaiViec = false
-                                }
-                            )
-                        }
-                    }
-                }
+                // Trường 3: Phân loại công việc * (Công việc tháng, CSDL, ...)
+                SearchableDropdown(
+                    label = "${str.labelJobNature} *",
+                    selectedValue = selectedPhanLoaiViec,
+                    options = phanLoaiViecOptions,
+                    onSelect = { selectedPhanLoaiViec = it },
+                    placeholder = "Chọn phân loại...",
+                    searchPlaceholder = "Tìm phân loại...",
+                    expanded = (activeDropdown == "phan_loai_viec"),
+                    onExpandedChange = { activeDropdown = if (it) "phan_loai_viec" else null }
+                )
 
                 // Trường 4: Người phụ trách *
                 SingleUserSelector(
@@ -3719,40 +3748,16 @@ fun CreateTaskBottomSheet(
                 )
 
                 // Trường 5: Phòng ban * (Dropdown chuẩn SeaZen, mặc định là phòng ban cá nhân)
-                Box(modifier = Modifier.fillMaxWidth()) {
-                    OutlinedCard(
-                        onClick = { expandedDept = true },
-                        modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(8.dp)
-                    ) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth().padding(12.dp),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Column {
-                                Text(text = "${str.tagDepartment} *", fontSize = 11.sp, color = TextMuted)
-                                Text(text = selectedDept, fontSize = 13.sp, fontWeight = FontWeight.Medium, color = TextDark)
-                            }
-                            Icon(Icons.Default.ArrowDropDown, contentDescription = null, tint = TextMuted)
-                        }
-                    }
-
-                    DropdownMenu(
-                        expanded = expandedDept,
-                        onDismissRequest = { expandedDept = false }
-                    ) {
-                        deptOptions.forEach { opt ->
-                            DropdownMenuItem(
-                                text = { Text(opt, fontSize = 13.sp) },
-                                onClick = {
-                                    selectedDept = opt
-                                    expandedDept = false
-                                }
-                            )
-                        }
-                    }
-                }
+                SearchableDropdown(
+                    label = "${str.tagDepartment} *",
+                    selectedValue = selectedDept,
+                    options = deptOptions,
+                    onSelect = { selectedDept = it },
+                    placeholder = "Chọn phòng ban...",
+                    searchPlaceholder = "Tìm phòng ban...",
+                    expanded = (activeDropdown == "dept"),
+                    onExpandedChange = { activeDropdown = if (it) "dept" else null }
+                )
 
                 // Trường 6: CC Email
                 MultiUserSelector(
