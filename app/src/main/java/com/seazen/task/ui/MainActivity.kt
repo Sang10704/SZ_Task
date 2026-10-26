@@ -4399,6 +4399,16 @@ fun LandingScreen(
                         if (!isDownloading) {
                             Button(
                                 onClick = {
+                                    if (!downloader.hasInstallPermission()) {
+                                        Toast.makeText(
+                                            context,
+                                            if (lang == "en") "Please grant install permission for SZ Task (required once)"
+                                            else "Vui lòng cho phép cài đặt cho SZ Task (1 lần duy nhất trong Cài đặt)",
+                                            Toast.LENGTH_LONG
+                                        ).show()
+                                        downloader.openInstallPermissionSettings()
+                                        return@Button
+                                    }
                                     isDownloading = true
                                     downloadError = null
                                     coroutineScope.launch {

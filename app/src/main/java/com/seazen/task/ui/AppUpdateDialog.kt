@@ -150,6 +150,10 @@ fun AppUpdateDialog(
 
                         Button(
                             onClick = {
+                                if (!downloader.hasInstallPermission()) {
+                                    downloader.openInstallPermissionSettings()
+                                    return@Button
+                                }
                                 isDownloading = true
                                 downloadError = null
                                 coroutineScope.launch {
