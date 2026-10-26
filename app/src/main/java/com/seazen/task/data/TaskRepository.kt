@@ -411,9 +411,9 @@ class TaskRepository(private val context: Context) {
     fun getCurrentAppVersion(): String {
         return try {
             val pInfo = context.packageManager.getPackageInfo(context.packageName, 0)
-            pInfo.versionName ?: "2.7.8"
+            pInfo.versionName ?: "0.9.1"
         } catch (_: Exception) {
-            "2.7.8"
+            "0.9.1"
         }
     }
 

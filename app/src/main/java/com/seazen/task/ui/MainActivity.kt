@@ -246,27 +246,41 @@ fun AppNavigator(
     var isLoggedIn by remember { mutableStateOf(repository.isConfigured()) }
     var showLanding by remember { mutableStateOf(!repository.isConfigured()) }
 
-    if (isLoggedIn) {
-        MainContainerScreen(
-            repository = repository,
-            intentState = intentState,
-            appLang = appLang,
-            onSelectLang = onSelectLang,
-            onLogout = {
-                repository.logout()
-                isLoggedIn = false
-                showLanding = true
-            }
-        )
-    } else if (showLanding) {
-        LandingScreen(
-            onGetStarted = { showLanding = false }
-        )
-    } else {
-        LoginScreen(
-            repository = repository,
-            onBackToLanding = { showLanding = true },
-            onLoginSuccess = { isLoggedIn = true }
+    Box(modifier = Modifier.fillMaxSize()) {
+        if (isLoggedIn) {
+            MainContainerScreen(
+                repository = repository,
+                intentState = intentState,
+                appLang = appLang,
+                onSelectLang = onSelectLang,
+                onLogout = {
+                    repository.logout()
+                    isLoggedIn = false
+                    showLanding = true
+                }
+            )
+        } else if (showLanding) {
+            LandingScreen(
+                onGetStarted = { showLanding = false }
+            )
+        } else {
+            LoginScreen(
+                repository = repository,
+                onBackToLanding = { showLanding = true },
+                onLoginSuccess = { isLoggedIn = true }
+            )
+        }
+
+        // Watermark phien ban nho gon tinh te o goc trai duoi man hinh
+        Text(
+            text = "v${repository.getCurrentAppVersion()}",
+            fontSize = 10.sp,
+            fontWeight = FontWeight.Medium,
+            letterSpacing = 0.5.sp,
+            color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.35f),
+            modifier = Modifier
+                .align(Alignment.BottomStart)
+                .padding(start = 12.dp, bottom = 6.dp)
         )
     }
 }
@@ -695,6 +709,14 @@ fun MainContainerScreen(
                     }
                 }
             }
+        )
+    }
+
+    if (showUpdateDialog && appUpdateInfo != null) {
+        AppUpdateDialog(
+            updateInfo = appUpdateInfo!!,
+            currentVersion = repository.getCurrentAppVersion(),
+            onDismiss = { showUpdateDialog = false }
         )
     }
 }
@@ -2479,7 +2501,7 @@ fun SettingsTab(
             }
         }
 
-        // Phien ban ung dung & Kiem tra cap nhat OTA
+        // Thong tin phien ban ung dung & Cap nhat OTA chuyen nghiep
         item {
             Card(
                 modifier = Modifier.fillMaxWidth(),
@@ -2487,39 +2509,128 @@ fun SettingsTab(
                 colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
                 border = CardDefaults.outlinedCardBorder().copy(brush = androidx.compose.ui.graphics.SolidColor(MaterialTheme.colorScheme.outline))
             ) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(16.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
+                Column(
+                    modifier = Modifier.padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(14.dp)
                 ) {
-                    Column {
-                        Text(
-                            text = "Phiên bản ứng dụng",
-                            fontSize = 14.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.onSurface
-                        )
-                        Spacer(modifier = Modifier.height(2.dp))
-                        Text(
-                            text = "Bản hiện tại: v${repository.getCurrentAppVersion()}",
-                            fontSize = 12.sp,
-                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
-                        )
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            Surface(
+                                shape = RoundedCornerShape(10.dp),
+                                color = PrimaryPurple.copy(alpha = 0.08f),
+                                modifier = Modifier.size(38.dp)
+                            ) {
+                                Box(contentAlignment = Alignment.Center) {
+                                    Icon(
+                                        imageVector = Icons.Default.Info,
+                                        contentDescription = null,
+                                        tint = PrimaryPurple,
+                                        modifier = Modifier.size(20.dp)
+                                    )
+                                }
+                            }
+                            Column {
+                                Text(
+                                    text = if (isVi) "Thông tin phiên bản" else "Application Version",
+                                    fontSize = 14.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.onSurface
+                                )
+                                Text(
+                                    text = "SeaZen Task Management Client",
+                                    fontSize = 11.sp,
+                                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+                                )
+                            }
+                        }
+
+                        // Badge Official Build
+                        Surface(
+                            shape = RoundedCornerShape(6.dp),
+                            color = PrimaryPurple.copy(alpha = 0.1f)
+                        ) {
+                            Text(
+                                text = "v${repository.getCurrentAppVersion()}",
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                color = PrimaryPurple,
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                            )
+                        }
                     }
 
+                    HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.5f), thickness = 0.8.dp)
+
+                    // Thong so he thong
+                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = if (isVi) "Kênh phân phối" else "Channel",
+                                fontSize = 12.sp,
+                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.65f)
+                            )
+                            Text(
+                                text = "SharePoint Enterprise OTA",
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Medium,
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                        }
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = if (isVi) "Trạng thái hệ thống" else "System Status",
+                                fontSize = 12.sp,
+                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.65f)
+                            )
+                            val update = appUpdateInfo
+                            if (update != null && update.hasUpdate) {
+                                Text(
+                                    text = if (isVi) "Có bản mới: v${update.latestVersion}" else "New update: v${update.latestVersion}",
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = Color(0xFFEF4444)
+                                )
+                            } else {
+                                Text(
+                                    text = if (isVi) "Đang chạy bản mới nhất" else "Up to date",
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Medium,
+                                    color = Color(0xFF10B981)
+                                )
+                            }
+                        }
+                    }
+
+                    // Nut thao tac cap nhat
                     val update = appUpdateInfo
                     if (update != null && update.hasUpdate) {
                         Button(
                             onClick = onCheckUpdate,
-                            shape = RoundedCornerShape(8.dp),
-                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFEF4444)),
-                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
+                            modifier = Modifier.fillMaxWidth().height(42.dp),
+                            shape = RoundedCornerShape(10.dp),
+                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFEF4444))
                         ) {
+                            Icon(Icons.Default.SystemUpdate, contentDescription = null, modifier = Modifier.size(16.dp), tint = Color.White)
+                            Spacer(modifier = Modifier.width(8.dp))
                             Text(
-                                text = "Cập nhật v${update.latestVersion}",
-                                fontSize = 11.5.sp,
+                                text = if (isVi) "Cập nhật lên phiên bản v${update.latestVersion}" else "Update to v${update.latestVersion}",
+                                fontSize = 12.5.sp,
                                 fontWeight = FontWeight.Bold,
                                 color = Color.White
                             )
@@ -2527,12 +2638,16 @@ fun SettingsTab(
                     } else {
                         OutlinedButton(
                             onClick = onCheckUpdate,
-                            shape = RoundedCornerShape(8.dp),
-                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
+                            modifier = Modifier.fillMaxWidth().height(40.dp),
+                            shape = RoundedCornerShape(10.dp),
+                            border = ButtonDefaults.outlinedButtonBorder.copy(brush = androidx.compose.ui.graphics.SolidColor(MaterialTheme.colorScheme.outline))
                         ) {
+                            Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(15.dp), tint = MaterialTheme.colorScheme.onSurface)
+                            Spacer(modifier = Modifier.width(6.dp))
                             Text(
-                                text = "Kiểm tra bản mới",
-                                fontSize = 11.5.sp,
+                                text = if (isVi) "Kiểm tra bản cập nhật" else "Check for updates",
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Medium,
                                 color = MaterialTheme.colorScheme.onSurface
                             )
                         }

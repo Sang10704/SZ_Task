@@ -26,3 +26,6 @@ new_prefs.xml
 *.aab
 SZ-Task-*.apk
 SeaZen-Task-*.apk
+
+__pycache__/
+*.pyc
