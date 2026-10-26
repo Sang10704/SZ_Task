@@ -306,6 +306,8 @@ fun MainContainerScreen(
     val tasks by repository.tasks.collectAsState()
     val taskChinhList by repository.taskChinhList.collectAsState()
     val users by repository.users.collectAsState()
+    val appUpdateInfo by repository.appUpdateInfo.collectAsState()
+    var showUpdateDialog by remember { mutableStateOf(false) }
     val userEmail = repository.getSavedEmail().lowercase().trim()
     val curUser = users.find { it.email.equals(userEmail, ignoreCase = true) }
     LaunchedEffect(curUser) {
@@ -489,6 +491,8 @@ fun MainContainerScreen(
                             taskChinhList = taskChinhList,
                             userEmail = userEmail,
                             currentUserName = currentUserName,
+                            appUpdateInfo = appUpdateInfo,
+                            onUpdateClick = { showUpdateDialog = true },
                             onTaskClick = { viewingTask = it },
                             onProjectClick = { viewingProject = it }
                         )
@@ -537,6 +541,17 @@ fun MainContainerScreen(
                         repository = repository,
                         userEmail = userEmail,
                         appLang = appLang,
+                        appUpdateInfo = appUpdateInfo,
+                        onCheckUpdate = {
+                            coroutineScope.launch {
+                                val info = repository.checkForAppUpdate()
+                                if (info != null && info.hasUpdate) {
+                                    showUpdateDialog = true
+                                } else {
+                                    Toast.makeText(context, if (appLang == "en") "You are on the latest version" else "Bạn đang ở phiên bản mới nhất", Toast.LENGTH_SHORT).show()
+                                }
+                            }
+                        },
                         onSelectLang = onSelectLang,
                         onLogout = onLogout
                     )
@@ -1009,6 +1024,8 @@ fun MyTasksTab(
     taskChinhList: List<TaskChinhItem>,
     userEmail: String,
     currentUserName: String = "",
+    appUpdateInfo: com.seazen.task.data.AppUpdateInfo? = null,
+    onUpdateClick: () -> Unit = {},
     onTaskClick: (TaskItem) -> Unit,
     onProjectClick: (TaskChinhItem) -> Unit
 ) {
@@ -1157,8 +1174,39 @@ fun MyTasksTab(
                         }
                     }
 
-                    IconButton(onClick = { isSearchOpen = true }) {
-                        Icon(Icons.Default.Search, contentDescription = str.searchPlaceholder, tint = TextDark)
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        val update = appUpdateInfo
+                        if (update != null && update.hasUpdate) {
+                            Surface(
+                                shape = RoundedCornerShape(20.dp),
+                                color = Color(0xFFEF4444).copy(alpha = 0.12f),
+                                modifier = Modifier
+                                    .padding(end = 4.dp)
+                                    .clickable { onUpdateClick() }
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                ) {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(7.dp)
+                                            .background(Color(0xFFEF4444), CircleShape)
+                                    )
+                                    Text(
+                                        text = "v${update.latestVersion}",
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = Color(0xFFEF4444)
+                                    )
+                                }
+                            }
+                        }
+
+                        IconButton(onClick = { isSearchOpen = true }) {
+                            Icon(Icons.Default.Search, contentDescription = str.searchPlaceholder, tint = TextDark)
+                        }
                     }
                 }
             }
@@ -2283,11 +2331,15 @@ fun SettingsTab(
     repository: TaskRepository,
     userEmail: String,
     appLang: String,
+    appUpdateInfo: com.seazen.task.data.AppUpdateInfo? = null,
+    onCheckUpdate: () -> Unit = {},
     onSelectLang: (String) -> Unit,
     onLogout: () -> Unit
 ) {
     val str = AppStrings.of(LocalAppLanguage.current)
     val users by repository.users.collectAsState()
+    val appUpdateInfo by repository.appUpdateInfo.collectAsState()
+    var showUpdateDialog by remember { mutableStateOf(false) }
     val curUser = users.find { it.email.equals(userEmail, ignoreCase = true) }
     val displayName = curUser?.name ?: if (userEmail.contains("@")) userEmail.substringBefore("@").replace(".", " ") else str.defaultUserName
     val displayDept = curUser?.phongBan ?: "SeaZen Tech"
@@ -2421,6 +2473,68 @@ fun SettingsTab(
                                     color = if (!isVi) Color.White else MaterialTheme.colorScheme.onSurfaceVariant
                                 )
                             }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Phien ban ung dung & Kiem tra cap nhat OTA
+        item {
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(16.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                border = CardDefaults.outlinedCardBorder().copy(brush = androidx.compose.ui.graphics.SolidColor(MaterialTheme.colorScheme.outline))
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(16.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column {
+                        Text(
+                            text = "Phiên bản ứng dụng",
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                        Spacer(modifier = Modifier.height(2.dp))
+                        Text(
+                            text = "Bản hiện tại: v${repository.getCurrentAppVersion()}",
+                            fontSize = 12.sp,
+                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
+                        )
+                    }
+
+                    val update = appUpdateInfo
+                    if (update != null && update.hasUpdate) {
+                        Button(
+                            onClick = onCheckUpdate,
+                            shape = RoundedCornerShape(8.dp),
+                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFEF4444)),
+                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
+                        ) {
+                            Text(
+                                text = "Cập nhật v${update.latestVersion}",
+                                fontSize = 11.5.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = Color.White
+                            )
+                        }
+                    } else {
+                        OutlinedButton(
+                            onClick = onCheckUpdate,
+                            shape = RoundedCornerShape(8.dp),
+                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
+                        ) {
+                            Text(
+                                text = "Kiểm tra bản mới",
+                                fontSize = 11.5.sp,
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
                         }
                     }
                 }

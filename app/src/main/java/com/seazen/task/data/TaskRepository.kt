@@ -78,6 +78,10 @@ class TaskRepository(private val context: Context) {
     private val _isSyncing = MutableStateFlow(false)
     val isSyncing: StateFlow<Boolean> = _isSyncing.asStateFlow()
 
+    // Thong tin cap nhat phien ban OTA tu POWERAPP LATEST VERSION
+    private val _appUpdateInfo = MutableStateFlow<AppUpdateInfo?>(null)
+    val appUpdateInfo: StateFlow<AppUpdateInfo?> = _appUpdateInfo.asStateFlow()
+
     init {
         loadCachedData()
     }
@@ -402,6 +406,88 @@ class TaskRepository(private val context: Context) {
         } catch (_: Exception) {}
     }
 
+    fun getListVersionId(): String = "af8925dc-0808-4a6a-bef0-4c1a9dec5179"
+
+    fun getCurrentAppVersion(): String {
+        return try {
+            val pInfo = context.packageManager.getPackageInfo(context.packageName, 0)
+            pInfo.versionName ?: "2.7.8"
+        } catch (_: Exception) {
+            "2.7.8"
+        }
+    }
+
+    fun isNewerVersion(serverVer: String, currentVer: String): Boolean {
+        try {
+            val cleanServer = serverVer.lowercase().replace("version", "").replace("v.", "").replace("v", "").trim()
+            val cleanCurrent = currentVer.lowercase().replace("version", "").replace("v.", "").replace("v", "").trim()
+
+            val sParts = cleanServer.split(".").mapNotNull { it.toIntOrNull() }
+            val cParts = cleanCurrent.split(".").mapNotNull { it.toIntOrNull() }
+
+            val maxLen = maxOf(sParts.size, cParts.size)
+            for (i in 0 until maxLen) {
+                val s = sParts.getOrElse(i) { 0 }
+                val c = cParts.getOrElse(i) { 0 }
+                if (s > c) return true
+                if (s < c) return false
+            }
+            return false
+        } catch (_: Exception) {
+            return false
+        }
+    }
+
+    suspend fun checkForAppUpdate(token: String? = null): AppUpdateInfo? = withContext(Dispatchers.IO) {
+        val activeToken = token?.trim()?.ifBlank { null } ?: getValidToken() ?: ""
+        if (activeToken.isBlank()) return@withContext null
+
+        try {
+            val siteUrl = getSiteUrl().removeSuffix("/")
+            val listId = getListVersionId()
+            val url = "$siteUrl/_api/web/lists(guid'$listId')/items?%24select=ID,Title,AppName,LatestVersion,DownloadUrl,N_x1ed9_idungc_x1ead_pnh_x1ead_t"
+
+            val req = Request.Builder()
+                .url(url)
+                .header("Authorization", "Bearer $activeToken")
+                .header("Accept", "application/json;odata=verbose")
+                .build()
+
+            httpClient.newCall(req).execute().use { resp ->
+                if (resp.isSuccessful) {
+                    val body = resp.body?.string() ?: "{}"
+                    val json = gson.fromJson(body, JsonObject::class.java)
+                    val results = json.getAsJsonObject("d")?.getAsJsonArray("results") ?: return@withContext null
+
+                    for (elem in results) {
+                        val it = elem.asJsonObject
+                        val appName = (it.get("AppName")?.asString ?: it.get("Title")?.asString ?: "").trim().uppercase()
+                        if (appName == "SZ_TASK" || appName == "SZTASK" || appName == "SZ-TASK") {
+                            val latestVer = it.get("LatestVersion")?.asString?.trim() ?: ""
+                            val dlUrl = it.get("DownloadUrl")?.asString?.trim() ?: "https://github.com/Sang10704/SZ_Task/releases/download/Sz_Task/SZ_Task.apk"
+                            val notes = it.get("N_x1ed9_idungc_x1ead_pnh_x1ead_t")?.asString?.trim() ?: ""
+
+                            val currentVer = getCurrentAppVersion()
+                            val hasUpdate = isNewerVersion(latestVer, currentVer)
+
+                            val info = AppUpdateInfo(
+                                latestVersion = latestVer,
+                                downloadUrl = dlUrl,
+                                notes = notes,
+                                hasUpdate = hasUpdate
+                            )
+                            _appUpdateInfo.value = info
+                            return@withContext info
+                        }
+                    }
+                }
+            }
+            null
+        } catch (_: Exception) {
+            null
+        }
+    }
+
     fun isConfigured(): Boolean = getSavedToken().isNotBlank()
 
     // Che do doc/ghi: Luon luon cho phep doc ghi truc tiep len SharePoint
@@ -472,6 +558,7 @@ class TaskRepository(private val context: Context) {
                 if (serverUsers.isNotEmpty()) {
                     saveUsers(serverUsers)
                 }
+                async { checkForAppUpdate(activeToken) }
                 // Dong bo dinh danh tai khoan hien tai
                 val currentSavedEmail = getSavedEmail()
                 if (currentSavedEmail.isNotBlank()) {
