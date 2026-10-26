@@ -288,9 +288,91 @@ class TaskRepository(private val context: Context) {
         }
     }
 
-    fun getSavedEmail(): String = prefs.getString("user_email", null)?.takeIf { it.isNotBlank() } ?: "sang.nguyen@seazen.com.vn"
+    fun extractUserFromToken(token: String): Pair<String?, String?> {
+        return try {
+            val parts = token.split(".")
+            if (parts.size < 2) return Pair(null, null)
+            val payload = String(android.util.Base64.decode(parts[1], android.util.Base64.URL_SAFE or android.util.Base64.NO_PADDING or android.util.Base64.NO_WRAP))
+            val json = gson.fromJson(payload, JsonObject::class.java)
+            val email = json.get("upn")?.asString
+                ?: json.get("unique_name")?.asString
+                ?: json.get("email")?.asString
+                ?: json.get("preferred_username")?.asString
+            val name = json.get("name")?.asString
+            Pair(email, name)
+        } catch (_: Exception) {
+            Pair(null, null)
+        }
+    }
+
+    suspend fun fetchCurrentUserFromSharePoint(siteUrl: String, token: String): Pair<String?, String?> = withContext(Dispatchers.IO) {
+        try {
+            val url = "$siteUrl/_api/web/currentuser?%24select=Id,Title,Email,UserPrincipalName,LoginName"
+            val req = Request.Builder()
+                .url(url)
+                .header("Authorization", "Bearer $token")
+                .header("Accept", "application/json;odata=verbose")
+                .build()
+            httpClient.newCall(req).execute().use { resp ->
+                if (resp.isSuccessful) {
+                    val body = resp.body?.string() ?: "{}"
+                    val json = gson.fromJson(body, JsonObject::class.java)
+                    val d = json.getAsJsonObject("d")
+                    val title = d?.get("Title")?.asString
+                    var email = d?.get("Email")?.asString?.takeIf { it.isNotBlank() }
+                    if (email.isNullOrBlank()) {
+                        email = d?.get("UserPrincipalName")?.asString?.takeIf { it.isNotBlank() }
+                    }
+                    if (email.isNullOrBlank()) {
+                        val login = d?.get("LoginName")?.asString ?: ""
+                        if (login.contains("membership|")) {
+                            email = login.substringAfter("membership|")
+                        }
+                    }
+                    Pair(email, title)
+                } else Pair(null, null)
+            }
+        } catch (_: Exception) {
+            Pair(null, null)
+        }
+    }
+
+    suspend fun syncCurrentUserIdentity(token: String? = null, enteredEmail: String? = null) = withContext(Dispatchers.IO) {
+        val activeToken = token?.trim()?.ifBlank { null } ?: getValidToken() ?: ""
+        var resolvedEmail: String? = null
+        var resolvedName: String? = null
+
+        if (activeToken.isNotBlank()) {
+            val (spEmail, spName) = fetchCurrentUserFromSharePoint(getSiteUrl().removeSuffix("/"), activeToken)
+            if (!spEmail.isNullOrBlank()) resolvedEmail = spEmail
+            if (!spName.isNullOrBlank()) resolvedName = spName
+        }
+
+        if (resolvedEmail.isNullOrBlank() && activeToken.isNotBlank()) {
+            val (jwtEmail, jwtName) = extractUserFromToken(activeToken)
+            if (!jwtEmail.isNullOrBlank()) resolvedEmail = jwtEmail
+            if (!jwtName.isNullOrBlank() && resolvedName.isNullOrBlank()) resolvedName = jwtName
+        }
+
+        if (resolvedEmail.isNullOrBlank() && !enteredEmail.isNullOrBlank()) {
+            resolvedEmail = enteredEmail.trim()
+        }
+
+        if (!resolvedEmail.isNullOrBlank()) {
+            saveEmail(resolvedEmail)
+            val usersList = _users.value
+            val foundUser = usersList.find { it.email.equals(resolvedEmail, ignoreCase = true) }
+            if (foundUser != null && foundUser.name.isNotBlank()) {
+                saveUserName(foundUser.name)
+            } else if (!resolvedName.isNullOrBlank()) {
+                saveUserName(resolvedName)
+            }
+        }
+    }
+
+    fun getSavedEmail(): String = prefs.getString("user_email", "") ?: ""
     fun saveEmail(email: String) = prefs.edit().putString("user_email", email.trim()).apply()
-    fun getSavedUserName(): String = prefs.getString("user_name", null)?.takeIf { it.isNotBlank() } ?: "NGUYỄN HUỲNH VĂN SANG"
+    fun getSavedUserName(): String = prefs.getString("user_name", "") ?: ""
     fun saveUserName(name: String) = prefs.edit().putString("user_name", name.trim()).apply()
 
     fun getSiteUrl(): String = prefs.getString("sp_site_url", "https://seazenvn.sharepoint.com/sites/ONESEAZEN") ?: "https://seazenvn.sharepoint.com/sites/ONESEAZEN"
@@ -306,7 +388,18 @@ class TaskRepository(private val context: Context) {
     }
 
     fun logout() {
-        prefs.edit().remove("ms_token").remove("ms_refresh_token").apply()
+        prefs.edit()
+            .remove("ms_token")
+            .remove("ms_refresh_token")
+            .remove("user_email")
+            .remove("user_name")
+            .apply()
+        _tasks.value = emptyList()
+        _taskChinhList.value = emptyList()
+        try {
+            clearLocalCache()
+            SeaZenWidgetProvider.notifyAllWidgets(context)
+        } catch (_: Exception) {}
     }
 
     fun isConfigured(): Boolean = getSavedToken().isNotBlank()
@@ -378,6 +471,14 @@ class TaskRepository(private val context: Context) {
                 saveTasks(serverChiTiet)
                 if (serverUsers.isNotEmpty()) {
                     saveUsers(serverUsers)
+                }
+                // Dong bo dinh danh tai khoan hien tai
+                val currentSavedEmail = getSavedEmail()
+                if (currentSavedEmail.isNotBlank()) {
+                    val matched = serverUsers.find { it.email.equals(currentSavedEmail, ignoreCase = true) }
+                    if (matched != null && matched.name.isNotBlank()) {
+                        saveUserName(matched.name)
+                    }
                 }
             }
 

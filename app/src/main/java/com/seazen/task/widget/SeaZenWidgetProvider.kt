@@ -183,13 +183,13 @@ class SeaZenWidgetProvider : AppWidgetProvider() {
             currentUserEmail: String,
             currentUserName: String = ""
         ): Boolean {
-            val myEmail = currentUserEmail.trim().lowercase().ifBlank { "sang.nguyen@seazen.com.vn" }
+            val myEmail = currentUserEmail.trim().lowercase()
             val myName = currentUserName.trim().lowercase()
             val taskEmail = task.safeAssigneeEmail.trim().lowercase()
             val taskName = task.safeAssigneeName.trim().lowercase()
 
             // 1. So khớp Email nếu task có email (hỗ trợ cả username trước ký tự @)
-            if (taskEmail.isNotBlank()) {
+            if (myEmail.isNotBlank() && taskEmail.isNotBlank()) {
                 if (taskEmail == myEmail || taskEmail.contains(myEmail) || myEmail.contains(taskEmail)) {
                     return true
                 }
@@ -200,13 +200,9 @@ class SeaZenWidgetProvider : AppWidgetProvider() {
                 }
             }
 
-            // 2. Nếu task không có email, so khớp Họ tên
-            if (taskName.isNotBlank()) {
-                if (myName.isNotBlank() && (taskName == myName || taskName.contains(myName) || myName.contains(taskName))) {
-                    return true
-                }
-                // Nhận diện nhân sự Sang
-                if (taskName.contains("sang")) {
+            // 2. Nếu task chưa khớp email, so khớp Họ tên
+            if (myName.isNotBlank() && taskName.isNotBlank()) {
+                if (taskName == myName || taskName.contains(myName) || myName.contains(taskName)) {
                     return true
                 }
             }

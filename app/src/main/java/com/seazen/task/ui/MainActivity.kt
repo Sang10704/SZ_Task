@@ -488,6 +488,7 @@ fun MainContainerScreen(
                             tasks = tasks,
                             taskChinhList = taskChinhList,
                             userEmail = userEmail,
+                            currentUserName = currentUserName,
                             onTaskClick = { viewingTask = it },
                             onProjectClick = { viewingProject = it }
                         )
@@ -655,8 +656,8 @@ fun MainContainerScreen(
             onCreateChinh = { title, sDate, eDate, person, email, dept, pTask, pViec, ccName, ccEmail ->
                 showCreateBottomSheet = false
                 val curUser = users.find { it.email.equals(userEmail, ignoreCase = true) }
-                val creatorName = curUser?.name ?: "Sang Nguyễn"
-                val creatorEmail = userEmail.ifBlank { "sang.nguyen@seazen.com.vn" }
+                val creatorName = curUser?.name ?: currentUserName
+                val creatorEmail = userEmail
                 coroutineScope.launch {
                     val res = repository.createTaskChinh(
                         title = title,
@@ -1007,6 +1008,7 @@ fun MyTasksTab(
     tasks: List<TaskItem>,
     taskChinhList: List<TaskChinhItem>,
     userEmail: String,
+    currentUserName: String = "",
     onTaskClick: (TaskItem) -> Unit,
     onProjectClick: (TaskChinhItem) -> Unit
 ) {
@@ -1017,12 +1019,12 @@ fun MyTasksTab(
     var isSearchOpen by remember { mutableStateOf(false) }
     var searchQuery by remember { mutableStateOf("") }
 
+    val effectiveName = currentUserName.ifBlank { repository.getSavedUserName() }
     val projectMap = remember(taskChinhList) { taskChinhList.associateBy { it.id } }
-    val scopedTasks = remember(tasks, projectMap, userEmail, selectedScope) {
+    val scopedTasks = remember(tasks, projectMap, userEmail, effectiveName, selectedScope) {
         when (selectedScope) {
             "PERSONAL" -> {
-                val savedName = repository.getSavedUserName()
-                tasks.filter { com.seazen.task.widget.SeaZenWidgetProvider.isMyTask(it, userEmail, savedName) }
+                tasks.filter { com.seazen.task.widget.SeaZenWidgetProvider.isMyTask(it, userEmail, effectiveName) }
             }
             "ALL" -> tasks
             else -> {
@@ -1054,11 +1056,15 @@ fun MyTasksTab(
         } else base
     }
 
-    val scopedProjects = remember(taskChinhList, userEmail, selectedScope) {
+    val scopedProjects = remember(taskChinhList, userEmail, effectiveName, selectedScope) {
+        val myEmail = userEmail.lowercase().trim()
+        val myName = effectiveName.lowercase().trim()
         when (selectedScope) {
             "PERSONAL" -> {
-                val list = taskChinhList.filter { it.safeResponsibleEmail.lowercase().contains(userEmail) || it.safeResponsiblePerson.lowercase().contains("sang") }
-                if (list.isNotEmpty()) list else taskChinhList.take(3)
+                taskChinhList.filter { p ->
+                    (myEmail.isNotBlank() && (p.safeResponsibleEmail.lowercase().contains(myEmail) || p.safeCreatorEmail.lowercase().contains(myEmail))) ||
+                    (myName.isNotBlank() && (p.safeResponsiblePerson.lowercase().contains(myName) || p.safeCreatorName.lowercase().contains(myName)))
+                }
             }
             "ALL" -> taskChinhList
             else -> taskChinhList.filter { it.safePhongBan.equals(selectedScope, ignoreCase = true) }
@@ -1121,13 +1127,24 @@ fun MyTasksTab(
                             modifier = Modifier.size(44.dp)
                         ) {
                             Box(contentAlignment = Alignment.Center) {
-                                Icon(Icons.Default.Person, contentDescription = null, tint = Color.White)
+                                val initials = effectiveName.split(" ")
+                                    .filter { it.isNotBlank() }
+                                    .takeLast(2)
+                                    .mapNotNull { it.firstOrNull()?.uppercaseChar() }
+                                    .joinToString("")
+                                    .ifBlank { "SZ" }
+                                Text(
+                                    text = initials,
+                                    fontSize = 15.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = Color.White
+                                )
                             }
                         }
                         Spacer(modifier = Modifier.width(12.dp))
                         Column {
                             Text(
-                                text = "${str.greetingPrefix} Sang Nguyễn",
+                                text = "${str.greetingPrefix} $effectiveName",
                                 fontSize = 17.sp,
                                 fontWeight = FontWeight.Bold,
                                 color = TextDark
@@ -1380,9 +1397,9 @@ fun DepartmentTab(
         taskChinhList.filter { p ->
             val matchScope = when (selectedScope) {
                 "PERSONAL" -> {
-                    p.safeResponsibleEmail.lowercase().contains(resolvedEmail) ||
-                    p.safeCreatorEmail.lowercase().contains(resolvedEmail) ||
-                    p.safeResponsiblePerson.lowercase().contains("sang")
+                    val myName = repository.getSavedUserName().lowercase().trim()
+                    (resolvedEmail.isNotBlank() && (p.safeResponsibleEmail.lowercase().contains(resolvedEmail) || p.safeCreatorEmail.lowercase().contains(resolvedEmail))) ||
+                    (myName.isNotBlank() && (p.safeResponsiblePerson.lowercase().contains(myName) || p.safeCreatorName.lowercase().contains(myName)))
                 }
                 "ALL" -> true
                 else -> p.safePhongBan.equals(selectedScope, ignoreCase = true)
@@ -1824,9 +1841,9 @@ fun CalendarTab(
             if (!active) return@filter false
             val matchScope = when (selectedScope) {
                 "PERSONAL" -> {
-                    p.safeResponsibleEmail.lowercase().contains(resolvedEmail) ||
-                    p.safeCreatorEmail.lowercase().contains(resolvedEmail) ||
-                    p.safeResponsiblePerson.lowercase().contains("sang")
+                    val myName = repository.getSavedUserName().lowercase().trim()
+                    (resolvedEmail.isNotBlank() && (p.safeResponsibleEmail.lowercase().contains(resolvedEmail) || p.safeCreatorEmail.lowercase().contains(resolvedEmail))) ||
+                    (myName.isNotBlank() && (p.safeResponsiblePerson.lowercase().contains(myName) || p.safeCreatorName.lowercase().contains(myName)))
                 }
                 "ALL" -> true
                 else -> p.safePhongBan.equals(selectedScope, ignoreCase = true)
@@ -1846,8 +1863,7 @@ fun CalendarTab(
             if (!active) return@filter false
             val matchScope = when (selectedScope) {
                 "PERSONAL" -> {
-                    t.safeAssigneeEmail.lowercase().contains(resolvedEmail) ||
-                    t.safeAssigneeName.lowercase().contains("sang")
+                    com.seazen.task.widget.SeaZenWidgetProvider.isMyTask(t, resolvedEmail, repository.getSavedUserName())
                 }
                 "ALL" -> true
                 else -> {
@@ -1988,7 +2004,7 @@ fun CalendarTab(
                             val today = LocalDate.now()
                             val scopedT = tasks.filter { t ->
                                 when (selectedScope) {
-                                    "PERSONAL" -> t.safeAssigneeEmail.lowercase().contains(resolvedEmail) || t.safeAssigneeName.lowercase().contains("sang")
+                                    "PERSONAL" -> com.seazen.task.widget.SeaZenWidgetProvider.isMyTask(t, resolvedEmail, repository.getSavedUserName())
                                     "ALL" -> true
                                     else -> {
                                         val p = projectMap[t.taskChinhId]
@@ -1998,7 +2014,11 @@ fun CalendarTab(
                             }
                             val scopedP = taskChinhList.filter { p ->
                                 when (selectedScope) {
-                                    "PERSONAL" -> p.safeResponsibleEmail.lowercase().contains(resolvedEmail) || p.safeCreatorEmail.lowercase().contains(resolvedEmail) || p.safeResponsiblePerson.lowercase().contains("sang")
+                                    "PERSONAL" -> {
+                                        val myName = repository.getSavedUserName().lowercase().trim()
+                                        (resolvedEmail.isNotBlank() && (p.safeResponsibleEmail.lowercase().contains(resolvedEmail) || p.safeCreatorEmail.lowercase().contains(resolvedEmail))) ||
+                                        (myName.isNotBlank() && (p.safeResponsiblePerson.lowercase().contains(myName) || p.safeCreatorName.lowercase().contains(myName)))
+                                    }
                                     "ALL" -> true
                                     else -> p.safePhongBan.equals(selectedScope, ignoreCase = true)
                                 }
@@ -2896,7 +2916,6 @@ fun AddChildTaskBottomSheet(
     var endDate by remember { mutableStateOf(defaultEndDate.ifBlank { LocalDate.now().plusDays(2).toString() }) }
     var selectedAssignee by remember(users, currentUserEmail) {
         val found = users.find { it.email.equals(currentUserEmail, ignoreCase = true) }
-            ?: users.find { it.name.contains("Sang", ignoreCase = true) }
             ?: users.firstOrNull()
         mutableStateOf(found)
     }
@@ -3020,8 +3039,8 @@ fun AddChildTaskBottomSheet(
                             title.trim(),
                             startDate.trim(),
                             endDate.trim(),
-                            selectedAssignee?.name ?: "Sang Nguyễn",
-                            selectedAssignee?.email ?: currentUserEmail.ifBlank { "sang.nguyen@seazen.com.vn" }
+                            selectedAssignee?.name ?: users.find { it.email.equals(currentUserEmail, ignoreCase = true) }?.name ?: str.defaultUserName,
+                            selectedAssignee?.email ?: currentUserEmail
                         )
                     }
                 },
@@ -3502,7 +3521,6 @@ fun CreateTaskBottomSheet(
     // Child task fields
     var selectedChildAssignee by remember(users, currentUserEmail) {
         val found = users.find { it.email.equals(currentUserEmail, ignoreCase = true) }
-            ?: users.find { it.name.contains("Sang", ignoreCase = true) }
             ?: users.firstOrNull()
         mutableStateOf(found)
     }
@@ -3513,7 +3531,6 @@ fun CreateTaskBottomSheet(
     // Main task / project fields
     var selectedResponsibleUser by remember(users, currentUserEmail) {
         val found = users.find { it.email.equals(currentUserEmail, ignoreCase = true) }
-            ?: users.find { it.name.contains("Sang", ignoreCase = true) }
             ?: users.firstOrNull()
         mutableStateOf(found)
     }
@@ -3523,7 +3540,6 @@ fun CreateTaskBottomSheet(
 
     val curUser = remember(users, currentUserEmail) {
         users.find { it.email.equals(currentUserEmail, ignoreCase = true) }
-            ?: users.find { it.name.contains("Sang", ignoreCase = true) }
     }
     val personalDept = curUser?.phongBan?.ifBlank { "SeaZen Tech" } ?: "SeaZen Tech"
 
@@ -3727,8 +3743,8 @@ fun CreateTaskBottomSheet(
                                 selectedTaskChinhTitle,
                                 startDate.trim(),
                                 endDate.trim(),
-                                selectedChildAssignee?.name ?: "Sang Nguyễn",
-                                selectedChildAssignee?.email ?: currentUserEmail.ifBlank { "sang.nguyen@seazen.com.vn" }
+                                selectedChildAssignee?.name ?: curUser?.name ?: str.defaultUserName,
+                                selectedChildAssignee?.email ?: currentUserEmail
                             )
                         }
                     },
@@ -3858,8 +3874,8 @@ fun CreateTaskBottomSheet(
                                 title.trim(),
                                 startDate.trim(),
                                 endDate.trim(),
-                                selectedResponsibleUser?.name ?: "Sang Nguyễn",
-                                selectedResponsibleUser?.email ?: currentUserEmail.ifBlank { "sang.nguyen@seazen.com.vn" },
+                                selectedResponsibleUser?.name ?: curUser?.name ?: str.defaultUserName,
+                                selectedResponsibleUser?.email ?: currentUserEmail,
                                 selectedDept.trim(),
                                 selectedPhanLoaiTask,
                                 selectedPhanLoaiViec,
@@ -3992,7 +4008,7 @@ fun LoginScreen(
     val str = AppStrings.of(lang)
     val coroutineScope = rememberCoroutineScope()
 
-    var email by remember { mutableStateOf(repository.getSavedEmail().ifBlank { "sang.nguyen@seazen.com.vn" }) }
+    var email by remember { mutableStateOf(repository.getSavedEmail()) }
     var password by remember { mutableStateOf("") }
     var isPasswordVisible by remember { mutableStateOf(false) }
 
@@ -4024,9 +4040,9 @@ fun LoginScreen(
                         val pollRes = repository.authManager.pollDeviceCodeToken(devRes.deviceCode)
                         if (pollRes.success && pollRes.accessToken != null) {
                             polling = false
-                            repository.saveEmail(email)
                             repository.saveToken(pollRes.accessToken)
                             if (pollRes.refreshToken != null) repository.saveRefreshToken(pollRes.refreshToken)
+                            repository.syncCurrentUserIdentity(pollRes.accessToken, enteredEmail = email)
                             repository.fetchAllFromSharePoint(pollRes.accessToken)
                             isWaitingDeviceLogin = false
                             onLoginSuccess()
@@ -4119,7 +4135,7 @@ fun LoginScreen(
             OutlinedTextField(
                 value = email,
                 onValueChange = { email = it },
-                placeholder = { Text("sang.nguyen@seazen.com.vn", fontSize = 14.sp, color = Color(0xFF94A3B8)) },
+                placeholder = { Text("email@seazen.com.vn", fontSize = 14.sp, color = Color(0xFF94A3B8)) },
                 singleLine = true,
                 modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(12.dp),
@@ -4256,15 +4272,11 @@ fun LoginScreen(
                     coroutineScope.launch {
                         val res = repository.loginMicrosoft(email, password)
                         if (res.success && res.accessToken != null) {
-                            repository.saveEmail(email)
                             repository.saveToken(res.accessToken)
                             if (res.refreshToken != null) {
                                 repository.saveRefreshToken(res.refreshToken)
                             }
-                            val foundUser = repository.users.value.find { it.email.equals(email, ignoreCase = true) }
-                            if (foundUser != null) {
-                                repository.saveUserName(foundUser.name)
-                            }
+                            repository.syncCurrentUserIdentity(res.accessToken, enteredEmail = email)
                             repository.fetchAllFromSharePoint(res.accessToken)
                             isLoading = false
                             Toast.makeText(context, if (lang == "en") "Signed in successfully" else "Đăng nhập thành công", Toast.LENGTH_SHORT).show()
