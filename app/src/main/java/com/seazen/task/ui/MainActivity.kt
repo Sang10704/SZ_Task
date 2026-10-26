@@ -45,6 +45,8 @@ import com.seazen.task.data.SeaZenUser
 import com.seazen.task.data.TaskChinhItem
 import com.seazen.task.data.TaskItem
 import com.seazen.task.data.TaskRepository
+import com.seazen.task.data.AppUpdateDownloader
+import com.seazen.task.data.AppUpdateInfo
 import com.seazen.task.data.parseLocalDate
 import kotlinx.coroutines.launch
 import java.time.LocalDate
@@ -211,7 +213,7 @@ val PrimaryPurple = Color(0xFF5B4DF6)
 val PrimaryPurpleDark = Color(0xFF4338CA)
 val AccentPurpleLight = Color(0xFFEEF2FF)
 val PrimaryDark = Color(0xFF0F172A)
-val BackgroundLight = Color(0xFFFAFAFC)
+val BackgroundLight = Color(0xFFF4F6FB)
 val CardBorderColor = Color(0xFFF1F5F9)
 val TextDark = Color(0xFF0F172A)
 val TextMuted = Color(0xFF64748B)
@@ -245,9 +247,24 @@ fun AppNavigator(
 ) {
     var isLoggedIn by remember { mutableStateOf(repository.isConfigured()) }
     var showLanding by remember { mutableStateOf(!repository.isConfigured()) }
+    val appUpdateInfo by repository.appUpdateInfo.collectAsState()
 
-    Box(modifier = Modifier.fillMaxSize()) {
-        if (isLoggedIn) {
+    // Tu dong kiem tra ban cap nhat moi ngay khi khoi chay
+    LaunchedEffect(Unit) {
+        repository.checkForAppUpdate()
+    }
+
+    val hasMandatoryUpdate = appUpdateInfo?.hasUpdate == true
+
+    Box(modifier = Modifier.fillMaxSize().background(BackgroundLight)) {
+        if (hasMandatoryUpdate) {
+            // BAT BUOC CAP NHAT: Khoa tai trang Landing, van GIU NGUYEN phien dang nhap
+            LandingScreen(
+                repository = repository,
+                appUpdateInfo = appUpdateInfo,
+                onGetStarted = {}
+            )
+        } else if (isLoggedIn) {
             MainContainerScreen(
                 repository = repository,
                 intentState = intentState,
@@ -261,6 +278,8 @@ fun AppNavigator(
             )
         } else if (showLanding) {
             LandingScreen(
+                repository = repository,
+                appUpdateInfo = null,
                 onGetStarted = { showLanding = false }
             )
         } else {
@@ -4133,98 +4152,453 @@ fun CreateTaskBottomSheet(
  */
 @Composable
 fun LandingScreen(
+    repository: TaskRepository,
+    appUpdateInfo: AppUpdateInfo? = null,
     onGetStarted: () -> Unit
 ) {
+    val context = LocalContext.current
     val lang = LocalAppLanguage.current
     val str = AppStrings.of(lang)
+    val coroutineScope = rememberCoroutineScope()
+    val isMandatoryUpdate = appUpdateInfo?.hasUpdate == true
+
+    var isDownloading by remember { mutableStateOf(false) }
+    var downloadProgress by remember { mutableStateOf(0) }
+    var downloadError by remember { mutableStateOf<String?>(null) }
+    val downloader = remember { AppUpdateDownloader(context) }
 
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(Color(0xFF1B3B8B))
-            .clickable { onGetStarted() }
-            .padding(32.dp)
+            .background(BackgroundLight)
+            .padding(horizontal = 24.dp, vertical = 32.dp)
     ) {
-        Column(
-            modifier = Modifier
-                .align(Alignment.Center)
-                .fillMaxWidth(),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.Center
-        ) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.Center
+        if (isMandatoryUpdate && appUpdateInfo != null) {
+            // === CHE DO BAT BUOC CAP NHAT (MANDATORY UPDATE) ===
+            Column(
+                modifier = Modifier
+                    .align(Alignment.Center)
+                    .fillMaxWidth(),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
+                // Header Logo
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.Center
+                ) {
+                    Text(
+                        text = "sz",
+                        fontSize = 34.sp,
+                        fontWeight = FontWeight.ExtraBold,
+                        color = PrimaryPurple,
+                        letterSpacing = (-1).sp
+                    )
+                    Box(
+                        modifier = Modifier
+                            .padding(horizontal = 3.dp, vertical = 2.dp)
+                            .size(8.dp)
+                            .background(DotCyan, CircleShape)
+                    )
+                    Text(
+                        text = "task",
+                        fontSize = 34.sp,
+                        fontWeight = FontWeight.ExtraBold,
+                        color = TextDark,
+                        letterSpacing = (-1).sp
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(4.dp))
+
+                // Card Cap nhat Soft UI
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(28.dp),
+                    colors = CardDefaults.cardColors(containerColor = Color.White),
+                    border = CardDefaults.outlinedCardBorder().copy(brush = androidx.compose.ui.graphics.SolidColor(CardBorderColor)),
+                    elevation = CardDefaults.cardElevation(defaultElevation = 6.dp)
+                ) {
+                    Column(
+                        modifier = Modifier.padding(24.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(14.dp)
+                    ) {
+                        // Badge Yeu cau cap nhat
+                        Surface(
+                            shape = RoundedCornerShape(20.dp),
+                            color = Color(0xFFFEF2F2)
+                        ) {
+                            Text(
+                                text = if (lang == "en") "UPDATE REQUIRED" else "YÊU CẦU CẬP NHẬT",
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = Color(0xFFDC2626),
+                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp)
+                            )
+                        }
+
+                        // Icon SystemUpdate
+                        Surface(
+                            shape = CircleShape,
+                            color = AccentPurpleLight,
+                            modifier = Modifier.size(56.dp)
+                        ) {
+                            Box(contentAlignment = Alignment.Center) {
+                                Icon(
+                                    imageVector = Icons.Default.SystemUpdate,
+                                    contentDescription = null,
+                                    tint = PrimaryPurple,
+                                    modifier = Modifier.size(28.dp)
+                                )
+                            }
+                        }
+
+                        Text(
+                            text = if (lang == "en") "New Version Available" else "Đã có bản cập nhật mới",
+                            fontSize = 18.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = TextDark,
+                            textAlign = TextAlign.Center
+                        )
+
+                        Text(
+                            text = if (lang == "en")
+                                "Please update to continue using SeaZen Task with the latest features and synchronization."
+                            else
+                                "Để đảm bảo dữ liệu công việc đồng bộ chính xác và ổn định, vui lòng cập nhật ứng dụng lên phiên bản mới nhất.",
+                            fontSize = 12.5.sp,
+                            color = TextMuted,
+                            textAlign = TextAlign.Center,
+                            lineHeight = 18.sp
+                        )
+
+                        // So sanh phien ban
+                        Surface(
+                            shape = RoundedCornerShape(14.dp),
+                            color = Color(0xFFF8F9FD),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Column {
+                                    Text(
+                                        text = if (lang == "en") "Current" else "Hiện tại",
+                                        fontSize = 11.sp,
+                                        color = TextMuted
+                                    )
+                                    Text(
+                                        text = "v${repository.getCurrentAppVersion()}",
+                                        fontSize = 13.sp,
+                                        fontWeight = FontWeight.SemiBold,
+                                        color = TextDark
+                                    )
+                                }
+
+                                Icon(
+                                    imageVector = Icons.Default.ArrowForward,
+                                    contentDescription = null,
+                                    tint = PrimaryPurple,
+                                    modifier = Modifier.size(16.dp)
+                                )
+
+                                Column(horizontalAlignment = Alignment.End) {
+                                    Text(
+                                        text = if (lang == "en") "Target" else "Bản mới",
+                                        fontSize = 11.sp,
+                                        color = PrimaryPurple
+                                    )
+                                    Text(
+                                        text = "v${appUpdateInfo.latestVersion}",
+                                        fontSize = 14.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = PrimaryPurple
+                                    )
+                                }
+                            }
+                        }
+
+                        // Ghi chu cap nhat neu co
+                        if (appUpdateInfo.notes.isNotBlank()) {
+                            Surface(
+                                shape = RoundedCornerShape(12.dp),
+                                color = Color(0xFFF8F9FD),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Column(modifier = Modifier.padding(12.dp)) {
+                                    Text(
+                                        text = if (lang == "en") "Release notes:" else "Nội dung cập nhật:",
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.SemiBold,
+                                        color = TextDark
+                                    )
+                                    Spacer(modifier = Modifier.height(4.dp))
+                                    Text(
+                                        text = appUpdateInfo.notes,
+                                        fontSize = 12.sp,
+                                        color = TextMuted,
+                                        lineHeight = 16.sp
+                                    )
+                                }
+                            }
+                        }
+
+                        // Thong bao phien dang nhap duoc bao toan
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.CheckCircle,
+                                contentDescription = null,
+                                tint = Color(0xFF10B981),
+                                modifier = Modifier.size(14.dp)
+                            )
+                            Text(
+                                text = if (lang == "en") "Your login session is safely preserved" else "Phiên đăng nhập của bạn vẫn được lưu an toàn",
+                                fontSize = 11.5.sp,
+                                color = Color(0xFF10B981),
+                                fontWeight = FontWeight.Medium
+                            )
+                        }
+
+                        // Tien trinh tai hoac loi
+                        if (isDownloading) {
+                            Column(
+                                modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                verticalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                LinearProgressIndicator(
+                                    progress = { downloadProgress / 100f },
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .height(8.dp),
+                                    color = PrimaryPurple,
+                                    trackColor = Color(0xFFE2E8F0)
+                                )
+                                Text(
+                                    text = if (lang == "en") "Downloading update: $downloadProgress%" else "Đang tải bản cập nhật: $downloadProgress%",
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Medium,
+                                    color = PrimaryPurple
+                                )
+                            }
+                        } else if (downloadError != null) {
+                            Text(
+                                text = "Lỗi: $downloadError",
+                                fontSize = 12.sp,
+                                color = Color(0xFFDC2626)
+                            )
+                        }
+
+                        // Nut hanh dong Cap nhat ngay (Pill CTA)
+                        if (!isDownloading) {
+                            Button(
+                                onClick = {
+                                    isDownloading = true
+                                    downloadError = null
+                                    coroutineScope.launch {
+                                        val result = downloader.downloadApk(appUpdateInfo.downloadUrl) { progress ->
+                                            downloadProgress = progress
+                                        }
+                                        isDownloading = false
+                                        if (result.isSuccess) {
+                                            val file = result.getOrNull()
+                                            if (file != null && file.exists()) {
+                                                downloader.installApk(file)
+                                            }
+                                        } else {
+                                            downloadError = result.exceptionOrNull()?.message ?: "Lỗi tải bản cập nhật"
+                                        }
+                                    }
+                                },
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(52.dp),
+                                shape = RoundedCornerShape(32.dp),
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = PrimaryPurple,
+                                    contentColor = Color.White
+                                ),
+                                elevation = ButtonDefaults.buttonElevation(defaultElevation = 4.dp)
+                            ) {
+                                Icon(Icons.Default.Download, contentDescription = null, modifier = Modifier.size(18.dp), tint = Color.White)
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text(
+                                    text = if (lang == "en") "Update Now (v${appUpdateInfo.latestVersion})" else "Cập nhật ứng dụng ngay (v${appUpdateInfo.latestVersion})",
+                                    fontSize = 14.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = Color.White
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        } else {
+            // === CHE DO LANDING THUONG (GET STARTED) ===
+            Column(
+                modifier = Modifier
+                    .align(Alignment.Center)
+                    .fillMaxWidth(),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(24.dp)
+            ) {
+                // Header Logo
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.Center
+                ) {
+                    Text(
+                        text = "sz",
+                        fontSize = 44.sp,
+                        fontWeight = FontWeight.ExtraBold,
+                        color = PrimaryPurple,
+                        letterSpacing = (-1).sp
+                    )
+                    Box(
+                        modifier = Modifier
+                            .padding(horizontal = 4.dp, vertical = 2.dp)
+                            .size(10.dp)
+                            .background(DotCyan, CircleShape)
+                    )
+                    Text(
+                        text = "task",
+                        fontSize = 44.sp,
+                        fontWeight = FontWeight.ExtraBold,
+                        color = TextDark,
+                        letterSpacing = (-1).sp
+                    )
+                }
+
                 Text(
-                    text = "sz",
-                    fontSize = 46.sp,
-                    fontWeight = FontWeight.ExtraBold,
-                    color = Color.White,
-                    letterSpacing = (-1).sp
+                    text = str.landingSubtitle,
+                    fontSize = 14.sp,
+                    color = TextMuted,
+                    textAlign = TextAlign.Center,
+                    fontWeight = FontWeight.Medium,
+                    lineHeight = 20.sp,
+                    modifier = Modifier.padding(horizontal = 16.dp)
                 )
-                Box(
-                    modifier = Modifier
-                        .padding(horizontal = 4.dp, vertical = 2.dp)
-                        .size(10.dp)
-                        .background(Color(0xFF38BDF8), CircleShape)
-                )
-                Text(
-                    text = "task",
-                    fontSize = 46.sp,
-                    fontWeight = FontWeight.ExtraBold,
-                    color = Color.White,
-                    letterSpacing = (-1).sp
-                )
+
+                Spacer(modifier = Modifier.height(8.dp))
+
+                // Feature Highlights Card Soft UI
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(24.dp),
+                    colors = CardDefaults.cardColors(containerColor = Color.White),
+                    border = CardDefaults.outlinedCardBorder().copy(brush = androidx.compose.ui.graphics.SolidColor(CardBorderColor)),
+                    elevation = CardDefaults.cardElevation(defaultElevation = 4.dp)
+                ) {
+                    Column(
+                        modifier = Modifier.padding(20.dp),
+                        verticalArrangement = Arrangement.spacedBy(16.dp)
+                    ) {
+                        FeatureRowItem(
+                            icon = Icons.Default.Sync,
+                            title = if (lang == "en") "Real-time Cloud Sync" else "Đồng bộ Real-time SharePoint",
+                            desc = if (lang == "en") "Direct cloud sync with Microsoft 365" else "Đồng bộ tức thì với cơ sở dữ liệu SharePoint Online"
+                        )
+                        HorizontalDivider(color = Color(0xFFF1F5F9), thickness = 0.8.dp)
+                        FeatureRowItem(
+                            icon = Icons.Default.AssignmentTurnedIn,
+                            title = if (lang == "en") "Task & Project Management" else "Quản lý Tiến độ & Dự án",
+                            desc = if (lang == "en") "Personal and departmental tracking" else "Theo dõi công việc cá nhân và tiến độ phòng ban"
+                        )
+                        HorizontalDivider(color = Color(0xFFF1F5F9), thickness = 0.8.dp)
+                        FeatureRowItem(
+                            icon = Icons.Default.Security,
+                            title = if (lang == "en") "Enterprise Security" else "Bảo mật Doanh nghiệp",
+                            desc = if (lang == "en") "Single Sign-On with Azure App Registration" else "Đăng nhập tập trung qua tài khoản SeaZen Microsoft 365"
+                        )
+                    }
+                }
             }
 
-            Spacer(modifier = Modifier.height(14.dp))
-
-            Text(
-                text = str.landingSubtitle,
-                fontSize = 14.sp,
-                color = Color.White.copy(alpha = 0.85f),
-                textAlign = TextAlign.Center,
-                fontWeight = FontWeight.Medium
-            )
+            // Nut Bat dau ngay (Pill CTA)
+            Button(
+                onClick = onGetStarted,
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .fillMaxWidth()
+                    .height(52.dp),
+                shape = RoundedCornerShape(32.dp),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = PrimaryPurple,
+                    contentColor = Color.White
+                ),
+                elevation = ButtonDefaults.buttonElevation(defaultElevation = 4.dp)
+            ) {
+                Text(
+                    text = str.btnGetStarted,
+                    fontSize = 15.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = Color.White
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Icon(
+                    imageVector = Icons.Default.ArrowForward,
+                    contentDescription = null,
+                    tint = Color.White,
+                    modifier = Modifier.size(18.dp)
+                )
+            }
         }
+    }
+}
 
-        Button(
-            onClick = onGetStarted,
-            modifier = Modifier
-                .align(Alignment.BottomCenter)
-                .fillMaxWidth()
-                .height(52.dp)
-                .padding(bottom = 4.dp),
-            shape = RoundedCornerShape(14.dp),
-            colors = ButtonDefaults.buttonColors(
-                containerColor = Color.White,
-                contentColor = Color(0xFF1B3B8B)
-            ),
-            elevation = ButtonDefaults.buttonElevation(defaultElevation = 4.dp)
+@Composable
+fun FeatureRowItem(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    title: String,
+    desc: String
+) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(14.dp)
+    ) {
+        Surface(
+            shape = CircleShape,
+            color = AccentPurpleLight,
+            modifier = Modifier.size(38.dp)
         ) {
+            Box(contentAlignment = Alignment.Center) {
+                Icon(
+                    imageVector = icon,
+                    contentDescription = null,
+                    tint = PrimaryPurple,
+                    modifier = Modifier.size(18.dp)
+                )
+            }
+        }
+        Column {
             Text(
-                text = str.btnGetStarted,
-                fontSize = 15.sp,
+                text = title,
+                fontSize = 13.5.sp,
                 fontWeight = FontWeight.Bold,
-                color = Color(0xFF1B3B8B)
+                color = TextDark
             )
-            Spacer(modifier = Modifier.width(8.dp))
-            Icon(
-                imageVector = Icons.Default.ArrowForward,
-                contentDescription = null,
-                tint = Color(0xFF1B3B8B),
-                modifier = Modifier.size(18.dp)
+            Text(
+                text = desc,
+                fontSize = 11.5.sp,
+                color = TextMuted
             )
         }
     }
 }
 
 /**
- * Màn hình Đăng nhập theo phong cách Image 3:
- * - Đăng nhập tài khoản mật khẩu
- * - Ở dưới là "— Hoặc đăng nhập bằng —" với nút Microsoft 365
- * - Không còn dữ liệu mẫu, không còn dán token thủ công
+ * Man hinh Dang nhap Modern Soft UI (chuan anh 3):
+ * - Nen sang mem #F4F6FB
+ * - Card trung tam mau trang bo tron 28dp, do bong tan xa
+ * - Input phang xam nhat #F8F9FD, bo tron 16dp
+ * - Nut Dang nhap Pill 32dp mau Tim Thuong Hieu #5B4DF6
+ * - Nut Microsoft 365 dang Pill trang sang trong
  */
 @Composable
 fun LoginScreen(
@@ -4288,13 +4662,13 @@ fun LoginScreen(
         }
     }
 
-    Scaffold(containerColor = Color.White) { padding ->
+    Scaffold(containerColor = BackgroundLight) { padding ->
         Column(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding)
                 .verticalScroll(rememberScrollState())
-                .padding(horizontal = 24.dp, vertical = 20.dp),
+                .padding(horizontal = 20.dp, vertical = 16.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
             // Top Bar with back button
@@ -4306,278 +4680,295 @@ fun LoginScreen(
                     Icon(
                         imageVector = Icons.Default.ArrowBack,
                         contentDescription = "Back",
-                        tint = Color(0xFF1E293B)
+                        tint = TextDark
                     )
                 }
             }
 
-            Spacer(modifier = Modifier.height(16.dp))
+            Spacer(modifier = Modifier.height(8.dp))
 
-            // Logo Header (cignifi-style)
+            // Logo Header
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.Center
             ) {
                 Text(
                     text = "sz",
-                    fontSize = 34.sp,
+                    fontSize = 36.sp,
                     fontWeight = FontWeight.ExtraBold,
-                    color = Color(0xFF1B3B8B),
+                    color = PrimaryPurple,
                     letterSpacing = (-1).sp
                 )
                 Box(
                     modifier = Modifier
                         .padding(horizontal = 3.dp, vertical = 2.dp)
                         .size(8.dp)
-                        .background(Color(0xFF0284C7), CircleShape)
+                        .background(DotCyan, CircleShape)
                 )
                 Text(
                     text = "task",
-                    fontSize = 34.sp,
+                    fontSize = 36.sp,
                     fontWeight = FontWeight.ExtraBold,
-                    color = Color(0xFF1B3B8B),
+                    color = TextDark,
                     letterSpacing = (-1).sp
                 )
             }
 
-            Spacer(modifier = Modifier.height(32.dp))
+            Spacer(modifier = Modifier.height(6.dp))
 
-            // Title "Login to your Account"
             Text(
                 text = str.loginScreenTitle,
-                fontSize = 20.sp,
+                fontSize = 18.sp,
                 fontWeight = FontWeight.Bold,
-                color = Color(0xFF0F172A),
-                modifier = Modifier.fillMaxWidth()
+                color = TextDark
+            )
+            Text(
+                text = if (lang == "en") "Sign in with your SeaZen corporate account" else "Sử dụng tài khoản doanh nghiệp SeaZen để tiếp tục",
+                fontSize = 12.sp,
+                color = TextMuted
             )
 
             Spacer(modifier = Modifier.height(20.dp))
 
-            // Email Input
-            Text(
-                text = str.fieldEmail,
-                fontSize = 13.sp,
-                fontWeight = FontWeight.Medium,
-                color = Color(0xFF475569),
-                modifier = Modifier.fillMaxWidth().padding(bottom = 6.dp)
-            )
-            OutlinedTextField(
-                value = email,
-                onValueChange = { email = it },
-                placeholder = { Text("email@seazen.com.vn", fontSize = 14.sp, color = Color(0xFF94A3B8)) },
-                singleLine = true,
+            // Card Form Dang nhap Soft UI
+            Card(
                 modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(12.dp),
-                colors = OutlinedTextFieldDefaults.colors(
-                    focusedBorderColor = Color(0xFF1B3B8B),
-                    unfocusedBorderColor = Color(0xFFE2E8F0),
-                    focusedContainerColor = Color(0xFFF8FAFC),
-                    unfocusedContainerColor = Color(0xFFF8FAFC)
-                ),
-                leadingIcon = {
-                    Icon(
-                        imageVector = Icons.Default.Email,
-                        contentDescription = null,
-                        tint = Color(0xFF64748B),
-                        modifier = Modifier.size(20.dp)
-                    )
-                }
-            )
-
-            Spacer(modifier = Modifier.height(16.dp))
-
-            // Password Input
-            Text(
-                text = str.fieldPassword,
-                fontSize = 13.sp,
-                fontWeight = FontWeight.Medium,
-                color = Color(0xFF475569),
-                modifier = Modifier.fillMaxWidth().padding(bottom = 6.dp)
-            )
-            OutlinedTextField(
-                value = password,
-                onValueChange = { password = it },
-                placeholder = { Text("••••••••", fontSize = 14.sp, color = Color(0xFF94A3B8)) },
-                singleLine = true,
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(12.dp),
-                visualTransformation = if (isPasswordVisible) VisualTransformation.None else PasswordVisualTransformation(),
-                colors = OutlinedTextFieldDefaults.colors(
-                    focusedBorderColor = Color(0xFF1B3B8B),
-                    unfocusedBorderColor = Color(0xFFE2E8F0),
-                    focusedContainerColor = Color(0xFFF8FAFC),
-                    unfocusedContainerColor = Color(0xFFF8FAFC)
-                ),
-                leadingIcon = {
-                    Icon(
-                        imageVector = Icons.Default.Lock,
-                        contentDescription = null,
-                        tint = Color(0xFF64748B),
-                        modifier = Modifier.size(20.dp)
-                    )
-                },
-                trailingIcon = {
-                    IconButton(onClick = { isPasswordVisible = !isPasswordVisible }) {
-                        Icon(
-                            imageVector = if (isPasswordVisible) Icons.Default.VisibilityOff else Icons.Default.Visibility,
-                            contentDescription = null,
-                            tint = Color(0xFF64748B),
-                            modifier = Modifier.size(20.dp)
-                        )
-                    }
-                }
-            )
-
-            // MFA verification prompt if needed
-            if (isWaitingDeviceLogin && deviceUserCode.isNotBlank()) {
-                Spacer(modifier = Modifier.height(16.dp))
-                Surface(
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(12.dp),
-                    color = Color(0xFFEFF6FF),
-                    border = BorderStroke(1.dp, Color(0xFFBFDBFE))
+                shape = RoundedCornerShape(28.dp),
+                colors = CardDefaults.cardColors(containerColor = Color.White),
+                border = CardDefaults.outlinedCardBorder().copy(brush = androidx.compose.ui.graphics.SolidColor(CardBorderColor)),
+                elevation = CardDefaults.cardElevation(defaultElevation = 4.dp)
+            ) {
+                Column(
+                    modifier = Modifier.padding(22.dp),
+                    verticalArrangement = Arrangement.spacedBy(14.dp)
                 ) {
-                    Column(
-                        modifier = Modifier.padding(16.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally
-                    ) {
-                        Text(text = str.mfaTitle, fontSize = 13.sp, fontWeight = FontWeight.Bold, color = Color(0xFF1E40AF))
-                        Spacer(modifier = Modifier.height(8.dp))
-                        Text(text = deviceUserCode, fontSize = 24.sp, fontWeight = FontWeight.ExtraBold, color = Color(0xFF1B3B8B), letterSpacing = 3.sp)
-                        Spacer(modifier = Modifier.height(6.dp))
+                    // Email Input
+                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                         Text(
-                            text = str.mfaDesc,
-                            fontSize = 11.sp,
-                            color = Color(0xFF3B82F6),
-                            textAlign = TextAlign.Center
+                            text = str.fieldEmail,
+                            fontSize = 12.5.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = TextDark
                         )
-                        Spacer(modifier = Modifier.height(10.dp))
-                        Button(
-                            onClick = {
-                                val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                                clipboard.setPrimaryClip(android.content.ClipData.newPlainText("user_code", deviceUserCode))
-                                val intent = Intent(Intent.ACTION_VIEW, Uri.parse(deviceVerificationUri))
-                                context.startActivity(intent)
+                        OutlinedTextField(
+                            value = email,
+                            onValueChange = { email = it },
+                            placeholder = { Text("email@seazen.com.vn", fontSize = 13.5.sp, color = Color(0xFF94A3B8)) },
+                            singleLine = true,
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(16.dp),
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedBorderColor = PrimaryPurple,
+                                unfocusedBorderColor = Color(0xFFE2E8F0),
+                                focusedContainerColor = Color(0xFFF8F9FD),
+                                unfocusedContainerColor = Color(0xFFF8F9FD),
+                                cursorColor = PrimaryPurple
+                            ),
+                            leadingIcon = {
+                                Icon(
+                                    imageVector = Icons.Default.Email,
+                                    contentDescription = null,
+                                    tint = TextMuted,
+                                    modifier = Modifier.size(19.dp)
+                                )
+                            }
+                        )
+                    }
+
+                    // Password Input
+                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Text(
+                            text = str.fieldPassword,
+                            fontSize = 12.5.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = TextDark
+                        )
+                        OutlinedTextField(
+                            value = password,
+                            onValueChange = { password = it },
+                            placeholder = { Text("••••••••", fontSize = 14.sp, color = Color(0xFF94A3B8)) },
+                            singleLine = true,
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(16.dp),
+                            visualTransformation = if (isPasswordVisible) VisualTransformation.None else PasswordVisualTransformation(),
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedBorderColor = PrimaryPurple,
+                                unfocusedBorderColor = Color(0xFFE2E8F0),
+                                focusedContainerColor = Color(0xFFF8F9FD),
+                                unfocusedContainerColor = Color(0xFFF8F9FD),
+                                cursorColor = PrimaryPurple
+                            ),
+                            leadingIcon = {
+                                Icon(
+                                    imageVector = Icons.Default.Lock,
+                                    contentDescription = null,
+                                    tint = TextMuted,
+                                    modifier = Modifier.size(19.dp)
+                                )
                             },
-                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1B3B8B)),
-                            shape = RoundedCornerShape(8.dp)
+                            trailingIcon = {
+                                IconButton(onClick = { isPasswordVisible = !isPasswordVisible }) {
+                                    Icon(
+                                        imageVector = if (isPasswordVisible) Icons.Default.VisibilityOff else Icons.Default.Visibility,
+                                        contentDescription = null,
+                                        tint = TextMuted,
+                                        modifier = Modifier.size(19.dp)
+                                    )
+                                }
+                            }
+                        )
+                    }
+
+                    // MFA verification prompt if needed
+                    if (isWaitingDeviceLogin && deviceUserCode.isNotBlank()) {
+                        Surface(
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(16.dp),
+                            color = Color(0xFFEFF6FF),
+                            border = BorderStroke(1.dp, Color(0xFFBFDBFE))
                         ) {
-                            Text(str.btnOpenMfa, fontSize = 12.sp, color = Color.White)
+                            Column(
+                                modifier = Modifier.padding(16.dp),
+                                horizontalAlignment = Alignment.CenterHorizontally
+                            ) {
+                                Text(text = str.mfaTitle, fontSize = 13.sp, fontWeight = FontWeight.Bold, color = Color(0xFF1E40AF))
+                                Spacer(modifier = Modifier.height(6.dp))
+                                Text(text = deviceUserCode, fontSize = 24.sp, fontWeight = FontWeight.ExtraBold, color = PrimaryPurple, letterSpacing = 3.sp)
+                                Spacer(modifier = Modifier.height(6.dp))
+                                Text(
+                                    text = str.mfaDesc,
+                                    fontSize = 11.sp,
+                                    color = Color(0xFF3B82F6),
+                                    textAlign = TextAlign.Center
+                                )
+                                Spacer(modifier = Modifier.height(10.dp))
+                                Button(
+                                    onClick = {
+                                        val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                                        clipboard.setPrimaryClip(android.content.ClipData.newPlainText("user_code", deviceUserCode))
+                                        val intent = Intent(Intent.ACTION_VIEW, Uri.parse(deviceVerificationUri))
+                                        context.startActivity(intent)
+                                    },
+                                    colors = ButtonDefaults.buttonColors(containerColor = PrimaryPurple),
+                                    shape = RoundedCornerShape(32.dp)
+                                ) {
+                                    Text(str.btnOpenMfa, fontSize = 12.sp, color = Color.White, fontWeight = FontWeight.Bold)
+                                }
+                            }
                         }
                     }
-                }
-            }
 
-            // Error display
-            if (errorMessage.isNotBlank() && !isWaitingDeviceLogin) {
-                Spacer(modifier = Modifier.height(12.dp))
-                Surface(
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(8.dp),
-                    color = Color(0xFFFEF2F2)
-                ) {
-                    Text(
-                        text = errorMessage,
-                        fontSize = 12.sp,
-                        color = Color(0xFFDC2626),
-                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
-                    )
-                }
-            }
-
-            Spacer(modifier = Modifier.height(24.dp))
-
-            // Primary "Sign In" / "Đăng nhập" button
-            Button(
-                onClick = {
-                    errorMessage = ""
-                    if (email.isBlank() || password.isBlank()) {
-                        errorMessage = str.loginErrorBlank
-                        return@Button
+                    // Error display
+                    if (errorMessage.isNotBlank() && !isWaitingDeviceLogin) {
+                        Surface(
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(12.dp),
+                            color = Color(0xFFFEF2F2)
+                        ) {
+                            Text(
+                                text = errorMessage,
+                                fontSize = 12.sp,
+                                color = Color(0xFFDC2626),
+                                modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp)
+                            )
+                        }
                     }
-                    isLoading = true
-                    isWaitingDeviceLogin = false
 
-                    coroutineScope.launch {
-                        val res = repository.loginMicrosoft(email, password)
-                        if (res.success && res.accessToken != null) {
-                            repository.saveToken(res.accessToken)
-                            if (res.refreshToken != null) {
-                                repository.saveRefreshToken(res.refreshToken)
+                    Spacer(modifier = Modifier.height(4.dp))
+
+                    // Primary "Sign In" Pill CTA Button
+                    Button(
+                        onClick = {
+                            errorMessage = ""
+                            if (email.isBlank() || password.isBlank()) {
+                                errorMessage = str.loginErrorBlank
+                                return@Button
                             }
-                            repository.syncCurrentUserIdentity(res.accessToken, enteredEmail = email)
-                            repository.fetchAllFromSharePoint(res.accessToken)
-                            isLoading = false
-                            Toast.makeText(context, if (lang == "en") "Signed in successfully" else "Đăng nhập thành công", Toast.LENGTH_SHORT).show()
-                            onLoginSuccess()
+                            isLoading = true
+                            isWaitingDeviceLogin = false
+
+                            coroutineScope.launch {
+                                val res = repository.loginMicrosoft(email, password)
+                                if (res.success && res.accessToken != null) {
+                                    repository.saveToken(res.accessToken)
+                                    if (res.refreshToken != null) {
+                                        repository.saveRefreshToken(res.refreshToken)
+                                    }
+                                    repository.syncCurrentUserIdentity(res.accessToken, enteredEmail = email)
+                                    repository.fetchAllFromSharePoint(res.accessToken)
+                                    isLoading = false
+                                    Toast.makeText(context, if (lang == "en") "Signed in successfully" else "Đăng nhập thành công", Toast.LENGTH_SHORT).show()
+                                    onLoginSuccess()
+                                } else {
+                                    isLoading = false
+                                    if (res.isMfaRequired) {
+                                        performMicrosoftDeviceFlow()
+                                    } else {
+                                        errorMessage = res.errorMessage ?: if (lang == "en") "Sign in failed" else "Đăng nhập thất bại"
+                                    }
+                                }
+                            }
+                        },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(52.dp),
+                        shape = RoundedCornerShape(32.dp),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = PrimaryPurple,
+                            contentColor = Color.White
+                        ),
+                        elevation = ButtonDefaults.buttonElevation(defaultElevation = 4.dp),
+                        enabled = !isLoading
+                    ) {
+                        if (isLoading) {
+                            CircularProgressIndicator(modifier = Modifier.size(20.dp), color = Color.White, strokeWidth = 2.dp)
+                            Spacer(modifier = Modifier.width(10.dp))
+                            Text(str.btnConnectingMicrosoft, color = Color.White, fontWeight = FontWeight.SemiBold)
                         } else {
-                            isLoading = false
-                            if (res.isMfaRequired) {
-                                performMicrosoftDeviceFlow()
-                            } else {
-                                errorMessage = res.errorMessage ?: if (lang == "en") "Sign in failed" else "Đăng nhập thất bại"
-                            }
+                            Text(
+                                text = if (lang == "en") "Sign In" else "Đăng nhập",
+                                fontSize = 15.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = Color.White
+                            )
                         }
                     }
-                },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(50.dp),
-                shape = RoundedCornerShape(12.dp),
-                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF1B3B8B)),
-                enabled = !isLoading
-            ) {
-                if (isLoading) {
-                    CircularProgressIndicator(modifier = Modifier.size(20.dp), color = Color.White, strokeWidth = 2.dp)
-                    Spacer(modifier = Modifier.width(10.dp))
-                    Text(str.btnConnectingMicrosoft, color = Color.White, fontWeight = FontWeight.SemiBold)
-                } else {
-                    Text(
-                        text = if (lang == "en") "Sign In" else "Đăng nhập",
-                        fontSize = 15.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = Color.White
-                    )
+
+                    // Divider: — Hoac dang nhap bang —
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        HorizontalDivider(modifier = Modifier.weight(1f), color = Color(0xFFF1F5F9))
+                        Text(
+                            text = "  ${str.orSignInWith}  ",
+                            fontSize = 11.5.sp,
+                            color = TextMuted
+                        )
+                        HorizontalDivider(modifier = Modifier.weight(1f), color = Color(0xFFF1F5F9))
+                    }
+
+                    // Microsoft Login Pill Button
+                    OutlinedButton(
+                        onClick = { performMicrosoftDeviceFlow() },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(50.dp),
+                        shape = RoundedCornerShape(32.dp),
+                        border = BorderStroke(1.dp, Color(0xFFE2E8F0)),
+                        colors = ButtonDefaults.outlinedButtonColors(containerColor = Color.White),
+                        enabled = !isLoading
+                    ) {
+                        MicrosoftLogoIcon()
+                        Spacer(modifier = Modifier.width(10.dp))
+                        Text(
+                            text = str.btnSignInWithMicrosoft,
+                            fontSize = 13.5.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = TextDark
+                        )
+                    }
                 }
-            }
-
-            Spacer(modifier = Modifier.height(32.dp))
-
-            // Divider: — Or sign in with —
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                HorizontalDivider(modifier = Modifier.weight(1f), color = Color(0xFFE2E8F0))
-                Text(
-                    text = "  ${str.orSignInWith}  ",
-                    fontSize = 12.sp,
-                    color = Color(0xFF94A3B8)
-                )
-                HorizontalDivider(modifier = Modifier.weight(1f), color = Color(0xFFE2E8F0))
-            }
-
-            Spacer(modifier = Modifier.height(24.dp))
-
-            // Microsoft Login Card / Button
-            OutlinedButton(
-                onClick = { performMicrosoftDeviceFlow() },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(50.dp),
-                shape = RoundedCornerShape(12.dp),
-                border = BorderStroke(1.dp, Color(0xFFE2E8F0)),
-                colors = ButtonDefaults.outlinedButtonColors(containerColor = Color(0xFFF8FAFC)),
-                enabled = !isLoading
-            ) {
-                MicrosoftLogoIcon()
-                Spacer(modifier = Modifier.width(10.dp))
-                Text(
-                    text = str.btnSignInWithMicrosoft,
-                    fontSize = 14.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    color = Color(0xFF1E293B)
-                )
             }
         }
     }
