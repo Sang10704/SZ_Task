@@ -12,10 +12,17 @@ android {
         applicationId = "com.seazen.task"
         minSdk = 26
         targetSdk = 35
-        versionCode = 1
+        versionCode = 18
         versionName = "0.9.1"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+    }
+
+    signingConfigs {
+        getByName("debug") {
+            enableV1Signing = true
+            enableV2Signing = true
+        }
     }
 
     buildTypes {
