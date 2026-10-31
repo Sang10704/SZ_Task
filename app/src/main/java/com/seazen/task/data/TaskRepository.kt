@@ -411,9 +411,9 @@ class TaskRepository(private val context: Context) {
     fun getCurrentAppVersion(): String {
         return try {
             val pInfo = context.packageManager.getPackageInfo(context.packageName, 0)
-            pInfo.versionName ?: "0.9.1"
+            pInfo.versionName ?: "1.9.2"
         } catch (_: Exception) {
-            "0.9.1"
+            "1.9.2"
         }
     }
 
@@ -421,6 +421,9 @@ class TaskRepository(private val context: Context) {
         try {
             val cleanServer = serverVer.lowercase().replace("version", "").replace("v.", "").replace("v", "").trim()
             val cleanCurrent = currentVer.lowercase().replace("version", "").replace("v.", "").replace("v", "").trim()
+
+            if (cleanServer.isBlank() || cleanCurrent.isBlank()) return false
+            if (cleanServer == cleanCurrent) return false
 
             val sParts = cleanServer.split(".").mapNotNull { it.toIntOrNull() }
             val cParts = cleanCurrent.split(".").mapNotNull { it.toIntOrNull() }
@@ -430,7 +433,15 @@ class TaskRepository(private val context: Context) {
                 val s = sParts.getOrElse(i) { 0 }
                 val c = cParts.getOrElse(i) { 0 }
                 if (s > c) return true
-                if (s < c) return false
+                if (s < c) {
+                    // Xử lý chống nhầm lẫn tiền tố 0.9.x và 1.9.x (ví dụ server cấu hình 0.9.2 nhưng app là 1.9.1)
+                    if (i == 0 && (s == 0 && c == 1 || s == 1 && c == 0) && sParts.size >= 3 && cParts.size >= 3 && sParts[1] == cParts[1]) {
+                        val sPatch = sParts[2]
+                        val cPatch = cParts[2]
+                        if (sPatch > cPatch) return true
+                    }
+                    return false
+                }
             }
             return false
         } catch (_: Exception) {
