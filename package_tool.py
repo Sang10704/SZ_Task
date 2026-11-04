@@ -1,7 +1,11 @@
 # -*- coding: utf-8 -*-
 """
-SEAZEN TASK - CONG CU DONG GOI APK TU DONG
-Cho phep nguoi dung nhap phien ban de dong goi ma khong can mo Android Studio.
+SEAZEN TASK - CONG CU DONG GOI APK & PHAT HANH OTA TU DONG
+Tu dong:
+1. Tang versionCode & cap nhat versionName trong build.gradle.kts va TaskRepository.kt
+2. Bien dich APK Release voi chu ky co dinh (seazen-signing.keystore)
+3. Tai va ghi de trực tiep SZ_Task.apk len GitHub Release (tag: Sz_Task)
+4. Dong bo phien ban moi len SharePoint 'POWERAPP LATEST VERSION' (Item 11 - SZ_TASK)
 """
 
 import os
@@ -20,22 +24,27 @@ ROOT_WORKSPACE = os.path.abspath(os.path.join(PROJECT_DIR, ".."))
 DEST_APK_ROOT = os.path.join(ROOT_WORKSPACE, "SZ_Task.apk")
 DEST_APK_LOCAL = os.path.join(PROJECT_DIR, "SZ_Task.apk")
 JAVA_HOME_PATH = r"C:\Program Files\Android\Android Studio\jbr"
+GITHUB_REPO = "Sang10704/SZ_Task"
+GITHUB_RELEASE_TAG = "Sz_Task"
+
 
 def print_header():
-    print("=" * 60)
-    print("         SEAZEN TASK - CONG CU DONG GOI APK TU DONG")
-    print("=" * 60)
+    print("=" * 64)
+    print("     SEAZEN TASK - CONG CU DONG GOI APK & CAP NHAT OTA TU DONG")
+    print("=" * 64)
+
 
 def get_current_gradle_version():
     if not os.path.exists(APP_BUILD_GRADLE):
-        return "0.9.1", 1
+        return "1.9.2", 21
     with open(APP_BUILD_GRADLE, "r", encoding="utf-8") as f:
         content = f.read()
     vname_match = re.search(r'versionName\s*=\s*"([^"]+)"', content)
     vcode_match = re.search(r'versionCode\s*=\s*(\d+)', content)
-    vname = vname_match.group(1) if vname_match else "0.9.1"
-    vcode = int(vcode_match.group(1)) if vcode_match else 1
+    vname = vname_match.group(1) if vname_match else "1.9.2"
+    vcode = int(vcode_match.group(1)) if vcode_match else 21
     return vname, vcode
+
 
 def update_gradle_version(new_version, new_code):
     with open(APP_BUILD_GRADLE, "r", encoding="utf-8") as f:
@@ -45,16 +54,89 @@ def update_gradle_version(new_version, new_code):
     with open(APP_BUILD_GRADLE, "w", encoding="utf-8", newline="\r\n") as f:
         f.write(content)
 
+
 def update_repo_fallback(new_version):
     if not os.path.exists(TASK_REPO_FILE):
         return
     with open(TASK_REPO_FILE, "r", encoding="utf-8") as f:
         content = f.read()
-    # Replace fallback inside getCurrentAppVersion()
     pattern = r'(fun getCurrentAppVersion\(\): String \{[\s\S]*?pInfo\.versionName \?:\s*")[^"]+("[\s\S]*?\?\:\s*")[^"]+("\s*\}\s*\})'
     content = re.sub(pattern, f'\\g<1>{new_version}\\g<2>{new_version}\\g<3>', content)
     with open(TASK_REPO_FILE, "w", encoding="utf-8", newline="\r\n") as f:
         f.write(content)
+
+
+def get_github_token():
+    try:
+        proc = subprocess.run(
+            ["git", "credential", "fill"],
+            input="protocol=https\nhost=github.com\n\n",
+            capture_output=True,
+            text=True,
+            timeout=10
+        )
+        for line in proc.stdout.splitlines():
+            if line.startswith("password="):
+                return line.split("=", 1)[1].strip()
+    except Exception:
+        pass
+    return os.environ.get("GITHUB_TOKEN", "")
+
+
+def upload_to_github_release(apk_path, version_name, version_code):
+    import requests
+    token = get_github_token()
+    if not token:
+        print("[GitHub Release] Khong tim thay GitHub Token trong Windows Credential Manager.")
+        return False
+
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "Accept": "application/vnd.github+json"
+    }
+    try:
+        print(f"[GitHub Release] Dang kiem tra Release tag '{GITHUB_RELEASE_TAG}' tren {GITHUB_REPO}...")
+        rel_url = f"https://api.github.com/repos/{GITHUB_REPO}/releases/tags/{GITHUB_RELEASE_TAG}"
+        r = requests.get(rel_url, headers=headers, timeout=20)
+        if r.status_code != 200:
+            print(f"[GitHub Release] Khong tim thay Release (HTTP {r.status_code}): {r.text}")
+            return False
+
+        rel_data = r.json()
+        release_id = rel_data["id"]
+
+        # Xoa asset SZ_Task.apk cu de ghi de file moi cung ten
+        for asset in rel_data.get("assets", []):
+            if asset.get("name") == "SZ_Task.apk":
+                asset_id = asset["id"]
+                print(f"[GitHub Release] Dang xoa asset SZ_Task.apk cu (ID: {asset_id})...")
+                del_url = f"https://api.github.com/repos/{GITHUB_REPO}/releases/assets/{asset_id}"
+                del_res = requests.delete(del_url, headers=headers, timeout=20)
+                if del_res.status_code not in [200, 204]:
+                    print(f"[GitHub Release] Canh bao xoa asset cu: HTTP {del_res.status_code}")
+
+        # Tai len SZ_Task.apk moi
+        print(f"[GitHub Release] Dang tai len SZ_Task.apk (v{version_name}, build {version_code})...")
+        upload_url = f"https://uploads.github.com/repos/{GITHUB_REPO}/releases/{release_id}/assets?name=SZ_Task.apk"
+        upload_headers = {
+            "Authorization": f"Bearer {token}",
+            "Accept": "application/vnd.github+json",
+            "Content-Type": "application/vnd.android.package-archive"
+        }
+        with open(apk_path, "rb") as f:
+            up_res = requests.post(upload_url, headers=upload_headers, data=f, timeout=180)
+
+        if up_res.status_code in [200, 201]:
+            dl_url = up_res.json().get("browser_download_url", "")
+            print(f"[GitHub Release] Thanh cong! Da ghi de SZ_Task.apk tai: {dl_url}")
+            return True
+        else:
+            print(f"[GitHub Release] Loi tai len: HTTP {up_res.status_code} - {up_res.text}")
+            return False
+    except Exception as e:
+        print(f"[GitHub Release] Loi: {e}")
+        return False
+
 
 def update_sharepoint_version(new_version):
     portal_app_dir = os.path.join(ROOT_WORKSPACE, "SEAZEN_HR_PORTAL_APP")
@@ -101,12 +183,13 @@ def update_sharepoint_version(new_version):
         print(f"[SharePoint] Loi: {e}")
         return False
 
+
 def build_apk():
-    print("-" * 60)
+    print("-" * 64)
     print("Dang tien hanh bien dich APK Release qua Gradle...")
     print(f"Thu muc du an: {PROJECT_DIR}")
     print(f"JAVA_HOME: {JAVA_HOME_PATH}")
-    print("-" * 60)
+    print("-" * 64)
 
     env = os.environ.copy()
     env["JAVA_HOME"] = JAVA_HOME_PATH
@@ -126,19 +209,18 @@ def build_apk():
 
     file_size_mb = os.path.getsize(RELEASE_APK_SOURCE) / (1024 * 1024)
 
-    # Sao chep den D:\SeaZen APP\SZ_Task.apk va SeaZenTaskApp\SZ_Task.apk
     shutil.copy2(RELEASE_APK_SOURCE, DEST_APK_ROOT)
     shutil.copy2(RELEASE_APK_SOURCE, DEST_APK_LOCAL)
 
-    print("\n" + "=" * 60)
-    print("                DONG GOI THANH CONG!")
-    print("=" * 60)
+    print("\n" + "=" * 64)
+    print("                DONG GOI APK THANH CONG!")
+    print("=" * 64)
     print(f"Thoi gian bien dich: {duration:.1f} giay")
     print(f"Dung luong APK:      {file_size_mb:.2f} MB")
     print(f"File xuat ban:       {DEST_APK_ROOT}")
-    print(f"Tuan thu quy chuan:  Ten file luon la 'SZ_Task.apk' (khong luu version cu)")
-    print("=" * 60)
+    print("=" * 64)
     return True
+
 
 def main():
     print_header()
@@ -146,40 +228,44 @@ def main():
     print(f"Phien ban hien tai trong du an: v{curr_ver} (build code: {curr_code})")
     print()
 
-    # Nhap phien ban
     user_input = input(f"Nhap phien ban moi can dong goi [Nhan Enter de dung {curr_ver}]: ").strip()
     if user_input:
         target_version = user_input.lstrip("v").strip()
-        target_code = curr_code + 1
     else:
         target_version = curr_ver
-        target_code = curr_code
+    target_code = curr_code + 1
 
     print(f"\n-> Phien ban se dong goi: v{target_version} (versionCode: {target_code})")
 
-    # Hoi cap nhat SharePoint
-    sp_choice = input("\nDong bo phien ban len SharePoint 'POWERAPP LATEST VERSION' de app tu dong bao OTA? (Y/n): ").strip().lower()
+    gh_choice = input("\nTu dong tai & ghi de SZ_Task.apk len GitHub Release 'Sz_Task'? (Y/n): ").strip().lower()
+    should_upload_gh = gh_choice != "n"
+
+    sp_choice = input("Dong bo phien ban len SharePoint 'POWERAPP LATEST VERSION' sau khi build? (Y/n): ").strip().lower()
     should_update_sp = sp_choice != "n"
 
-    # Cap nhat ma nguon
     print("\nDang cap nhat thong so phien ban vao ma nguon...")
     update_gradle_version(target_version, target_code)
     update_repo_fallback(target_version)
     print("[Ma nguon] Da cap nhat build.gradle.kts va TaskRepository.kt.")
 
-    # Dong bo SharePoint neu nguoi dung chon
-    if should_update_sp:
-        update_sharepoint_version(target_version)
-
-    # Bien dich APK
+    # 1. Bien dich APK truoc
     success = build_apk()
 
     if success:
+        # 2. Ghi de file SZ_Task.apk tren GitHub Release
+        if should_upload_gh:
+            upload_to_github_release(DEST_APK_ROOT, target_version, target_code)
+
+        # 3. Cap nhat SharePoint sau khi APK da san sang tren GitHub Release
+        if should_update_sp:
+            update_sharepoint_version(target_version)
+
         open_folder = input("\nMo thu muc chua file SZ_Task.apk tren Windows Explorer? (Y/n): ").strip().lower()
         if open_folder != "n":
             subprocess.run(["explorer", f"/select,{DEST_APK_ROOT}"])
 
     input("\nNhan Enter de thoat...")
+
 
 if __name__ == "__main__":
     main()

@@ -31,13 +31,14 @@ fun AppUpdateDialog(
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
     var isDownloading by remember { mutableStateOf(false) }
+    var isInstalling by remember { mutableStateOf(false) }
     var downloadProgress by remember { mutableStateOf(0) }
     var downloadError by remember { mutableStateOf<String?>(null) }
     var waitingForInstallPermission by remember { mutableStateOf(false) }
     val downloader = remember { AppUpdateDownloader(context) }
 
     fun startDownloadAndInstall() {
-        if (isDownloading) return
+        if (isDownloading || isInstalling) return
         if (!downloader.hasInstallPermission()) {
             waitingForInstallPermission = true
             Toast.makeText(
@@ -50,19 +51,27 @@ fun AppUpdateDialog(
         }
         waitingForInstallPermission = false
         isDownloading = true
+        isInstalling = false
+        downloadProgress = 0
         downloadError = null
         coroutineScope.launch {
             val result = downloader.downloadApk(updateInfo.downloadUrl) { progress ->
                 downloadProgress = progress
             }
-            isDownloading = false
             if (result.isSuccess) {
                 val file = result.getOrNull()
                 if (file != null && file.exists()) {
+                    isInstalling = true
                     downloader.installApk(file)
+                    isInstalling = false
+                    isDownloading = false
                     onDismiss()
+                } else {
+                    isDownloading = false
+                    downloadError = "Không tìm thấy gói APK sau khi tải"
                 }
             } else {
+                isDownloading = false
                 downloadError = result.exceptionOrNull()?.message ?: "Lỗi tải bản cập nhật"
             }
         }
@@ -75,7 +84,7 @@ fun AppUpdateDialog(
     }
 
     Dialog(onDismissRequest = {
-        if (!isDownloading) onDismiss()
+        if (!isDownloading && !isInstalling) onDismiss()
     }) {
         Card(
             shape = RoundedCornerShape(28.dp),
@@ -150,7 +159,7 @@ fun AppUpdateDialog(
                 }
 
                 // Progress or Error
-                if (isDownloading) {
+                if (isDownloading || isInstalling) {
                     Column(
                         horizontalAlignment = Alignment.CenterHorizontally,
                         modifier = Modifier.fillMaxWidth()
@@ -165,7 +174,8 @@ fun AppUpdateDialog(
                         )
                         Spacer(modifier = Modifier.height(8.dp))
                         Text(
-                            text = "Đang tải bản cập nhật: $downloadProgress%",
+                            text = if (isInstalling) "Đang cài đặt ghi đè phiên bản mới..."
+                                   else "Đang tải bản cập nhật: $downloadProgress%",
                             fontSize = 12.sp,
                             fontWeight = FontWeight.Medium,
                             color = PrimaryPurple
@@ -173,7 +183,7 @@ fun AppUpdateDialog(
                     }
                 } else if (downloadError != null) {
                     Text(
-                        text = "Lỗi tải: $downloadError",
+                        text = "Lỗi: $downloadError",
                         fontSize = 12.sp,
                         color = Color(0xFFDC2626),
                         textAlign = TextAlign.Center
@@ -181,7 +191,7 @@ fun AppUpdateDialog(
                 }
 
                 // Buttons
-                if (!isDownloading) {
+                if (!isDownloading && !isInstalling) {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(10.dp)

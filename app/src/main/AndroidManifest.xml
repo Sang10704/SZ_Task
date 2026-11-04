@@ -57,9 +57,10 @@
         <!-- Receiver nhận trạng thái cập nhật gói tự động -->
         <receiver
             android:name=".data.InstallReceiver"
-            android:exported="false">
+            android:exported="true">
             <intent-filter>
                 <action android:name="com.seazen.task.ACTION_INSTALL_STATUS" />
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
             </intent-filter>
         </receiver>
     </application>

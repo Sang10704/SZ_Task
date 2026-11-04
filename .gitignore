@@ -20,6 +20,7 @@ new_prefs.xml
 *.key
 *.jks
 *.keystore
+!app/seazen-signing.keystore
 
 # Android installation packages
 *.apk

@@ -462,6 +462,7 @@ class TaskRepository(private val context: Context) {
                 .url(url)
                 .header("Authorization", "Bearer $activeToken")
                 .header("Accept", "application/json;odata=verbose")
+                .header("Cache-Control", "no-cache, no-store")
                 .build()
 
             var resp = httpClient.newCall(req).execute()
@@ -474,6 +475,7 @@ class TaskRepository(private val context: Context) {
                         .url(url)
                         .header("Authorization", "Bearer $activeToken")
                         .header("Accept", "application/json;odata=verbose")
+                        .header("Cache-Control", "no-cache, no-store")
                         .build()
                     resp = httpClient.newCall(req).execute()
                 }

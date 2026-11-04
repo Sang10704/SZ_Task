@@ -4275,6 +4275,7 @@ fun LandingScreen(
     val isMandatoryUpdate = appUpdateInfo?.hasUpdate == true
 
     var isDownloading by remember { mutableStateOf(false) }
+    var isInstalling by remember { mutableStateOf(false) }
     var downloadProgress by remember { mutableStateOf(0) }
     var downloadError by remember { mutableStateOf<String?>(null) }
     var waitingForInstallPermission by remember { mutableStateOf(false) }
@@ -4282,7 +4283,7 @@ fun LandingScreen(
 
     fun triggerMandatoryUpdate() {
         val info = appUpdateInfo ?: return
-        if (isDownloading) return
+        if (isDownloading || isInstalling) return
         if (!downloader.hasInstallPermission()) {
             waitingForInstallPermission = true
             Toast.makeText(
@@ -4296,18 +4297,26 @@ fun LandingScreen(
         }
         waitingForInstallPermission = false
         isDownloading = true
+        isInstalling = false
+        downloadProgress = 0
         downloadError = null
         coroutineScope.launch {
             val result = downloader.downloadApk(info.downloadUrl) { progress ->
                 downloadProgress = progress
             }
-            isDownloading = false
             if (result.isSuccess) {
                 val file = result.getOrNull()
                 if (file != null && file.exists()) {
+                    isInstalling = true
                     downloader.installApk(file)
+                    isInstalling = false
+                    isDownloading = false
+                } else {
+                    isDownloading = false
+                    downloadError = "Không tìm thấy gói APK sau khi tải"
                 }
             } else {
+                isDownloading = false
                 downloadError = result.exceptionOrNull()?.message ?: "Lỗi tải bản cập nhật"
             }
         }
@@ -4518,7 +4527,7 @@ fun LandingScreen(
                         }
 
                         // Tien trinh tai hoac loi
-                        if (isDownloading) {
+                        if (isDownloading || isInstalling) {
                             Column(
                                 modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
                                 horizontalAlignment = Alignment.CenterHorizontally,
@@ -4533,7 +4542,11 @@ fun LandingScreen(
                                     trackColor = Color(0xFFE2E8F0)
                                 )
                                 Text(
-                                    text = if (lang == "en") "Downloading update: $downloadProgress%" else "Đang tải bản cập nhật: $downloadProgress%",
+                                    text = if (isInstalling) {
+                                        if (lang == "en") "Installing update..." else "Đang cài đặt ghi đè phiên bản mới..."
+                                    } else {
+                                        if (lang == "en") "Downloading update: $downloadProgress%" else "Đang tải bản cập nhật: $downloadProgress%"
+                                    },
                                     fontSize = 12.sp,
                                     fontWeight = FontWeight.Medium,
                                     color = PrimaryPurple
@@ -4543,12 +4556,13 @@ fun LandingScreen(
                             Text(
                                 text = "Lỗi: $downloadError",
                                 fontSize = 12.sp,
-                                color = Color(0xFFDC2626)
+                                color = Color(0xFFDC2626),
+                                textAlign = TextAlign.Center
                             )
                         }
 
                         // Nut hanh dong Cap nhat ngay (Pill CTA)
-                        if (!isDownloading) {
+                        if (!isDownloading && !isInstalling) {
                             Button(
                                 onClick = { triggerMandatoryUpdate() },
                                 modifier = Modifier

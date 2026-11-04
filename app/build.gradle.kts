@@ -20,8 +20,16 @@ android {
 
     signingConfigs {
         getByName("debug") {
+            val keystoreFile = file("seazen-signing.keystore")
+            if (keystoreFile.exists()) {
+                storeFile = keystoreFile
+                storePassword = "android"
+                keyAlias = "androiddebugkey"
+                keyPassword = "android"
+            }
             enableV1Signing = true
             enableV2Signing = true
+            enableV3Signing = true
         }
     }
 
