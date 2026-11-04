@@ -53,6 +53,15 @@ object CalendarUtils {
         }
     }
 
+    fun formatSingleDate(raw: String?): String {
+        if (raw.isNullOrBlank()) return ""
+        val parsed = com.seazen.task.data.parseLocalDate(raw)
+        if (parsed != null) {
+            return String.format(Locale.getDefault(), "%02d/%02d/%04d", parsed.dayOfMonth, parsed.monthValue, parsed.year)
+        }
+        return cleanDate(raw)
+    }
+
     fun formatDisplayRange(startDate: String?, endDate: String?, lang: String = "vi"): String {
         val s = cleanDate(startDate)
         val e = cleanDate(endDate)

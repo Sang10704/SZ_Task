@@ -1,7 +1,8 @@
 package com.seazen.task.ui
 
-import androidx.compose.foundation.background
+import android.widget.Toast
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.SystemUpdate
@@ -12,6 +13,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
@@ -23,6 +25,7 @@ import kotlinx.coroutines.launch
 fun AppUpdateDialog(
     updateInfo: AppUpdateInfo,
     currentVersion: String,
+    resumeTrigger: Long = 0L,
     onDismiss: () -> Unit
 ) {
     val context = LocalContext.current
@@ -30,17 +33,57 @@ fun AppUpdateDialog(
     var isDownloading by remember { mutableStateOf(false) }
     var downloadProgress by remember { mutableStateOf(0) }
     var downloadError by remember { mutableStateOf<String?>(null) }
+    var waitingForInstallPermission by remember { mutableStateOf(false) }
     val downloader = remember { AppUpdateDownloader(context) }
+
+    fun startDownloadAndInstall() {
+        if (isDownloading) return
+        if (!downloader.hasInstallPermission()) {
+            waitingForInstallPermission = true
+            Toast.makeText(
+                context,
+                "Vui lòng cấp quyền cài đặt cho SZ Task (1 lần duy nhất)",
+                Toast.LENGTH_LONG
+            ).show()
+            downloader.openInstallPermissionSettings()
+            return
+        }
+        waitingForInstallPermission = false
+        isDownloading = true
+        downloadError = null
+        coroutineScope.launch {
+            val result = downloader.downloadApk(updateInfo.downloadUrl) { progress ->
+                downloadProgress = progress
+            }
+            isDownloading = false
+            if (result.isSuccess) {
+                val file = result.getOrNull()
+                if (file != null && file.exists()) {
+                    downloader.installApk(file)
+                    onDismiss()
+                }
+            } else {
+                downloadError = result.exceptionOrNull()?.message ?: "Lỗi tải bản cập nhật"
+            }
+        }
+    }
+
+    LaunchedEffect(resumeTrigger) {
+        if (waitingForInstallPermission && downloader.hasInstallPermission()) {
+            startDownloadAndInstall()
+        }
+    }
 
     Dialog(onDismissRequest = {
         if (!isDownloading) onDismiss()
     }) {
         Card(
-            shape = RoundedCornerShape(20.dp),
+            shape = RoundedCornerShape(28.dp),
             colors = CardDefaults.cardColors(containerColor = Color.White),
+            elevation = CardDefaults.cardElevation(defaultElevation = 8.dp),
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(16.dp)
+                .padding(12.dp)
         ) {
             Column(
                 modifier = Modifier.padding(24.dp),
@@ -49,16 +92,16 @@ fun AppUpdateDialog(
             ) {
                 // Icon
                 Surface(
-                    shape = RoundedCornerShape(16.dp),
-                    color = Color(0xFF6366F1).copy(alpha = 0.12f),
+                    shape = CircleShape,
+                    color = PrimaryPurple.copy(alpha = 0.12f),
                     modifier = Modifier.size(56.dp)
                 ) {
                     Box(contentAlignment = Alignment.Center) {
                         Icon(
                             Icons.Default.SystemUpdate,
                             contentDescription = null,
-                            tint = Color(0xFF6366F1),
-                            modifier = Modifier.size(30.dp)
+                            tint = PrimaryPurple,
+                            modifier = Modifier.size(28.dp)
                         )
                     }
                 }
@@ -66,38 +109,40 @@ fun AppUpdateDialog(
                 // Title
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     Text(
-                        text = "Có bản cập nhật mới",
+                        text = "Đã có bản cập nhật mới",
                         fontSize = 17.sp,
                         fontWeight = FontWeight.Bold,
-                        color = Color(0xFF1E293B)
+                        color = TextDark,
+                        textAlign = TextAlign.Center
                     )
                     Spacer(modifier = Modifier.height(4.dp))
                     Text(
                         text = "Phiên bản v${updateInfo.latestVersion} (Hiện tại: v$currentVersion)",
                         fontSize = 12.sp,
-                        color = Color(0xFF64748B)
+                        color = TextMuted,
+                        textAlign = TextAlign.Center
                     )
                 }
 
                 // Release notes
                 if (updateInfo.notes.isNotBlank()) {
                     Surface(
-                        shape = RoundedCornerShape(12.dp),
-                        color = Color(0xFFF8FAFC),
+                        shape = RoundedCornerShape(14.dp),
+                        color = Color(0xFFF8F9FD),
                         modifier = Modifier.fillMaxWidth()
                     ) {
-                        Column(modifier = Modifier.padding(12.dp)) {
+                        Column(modifier = Modifier.padding(14.dp)) {
                             Text(
                                 text = "Nội dung cập nhật:",
                                 fontSize = 11.5.sp,
                                 fontWeight = FontWeight.SemiBold,
-                                color = Color(0xFF475569)
+                                color = TextDark
                             )
                             Spacer(modifier = Modifier.height(4.dp))
                             Text(
                                 text = updateInfo.notes,
                                 fontSize = 12.sp,
-                                color = Color(0xFF334155),
+                                color = TextMuted,
                                 lineHeight = 17.sp
                             )
                         }
@@ -115,7 +160,7 @@ fun AppUpdateDialog(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .height(8.dp),
-                            color = Color(0xFF6366F1),
+                            color = PrimaryPurple,
                             trackColor = Color(0xFFE2E8F0)
                         )
                         Spacer(modifier = Modifier.height(8.dp))
@@ -123,14 +168,15 @@ fun AppUpdateDialog(
                             text = "Đang tải bản cập nhật: $downloadProgress%",
                             fontSize = 12.sp,
                             fontWeight = FontWeight.Medium,
-                            color = Color(0xFF6366F1)
+                            color = PrimaryPurple
                         )
                     }
                 } else if (downloadError != null) {
                     Text(
                         text = "Lỗi tải: $downloadError",
                         fontSize = 12.sp,
-                        color = Color(0xFFDC2626)
+                        color = Color(0xFFDC2626),
+                        textAlign = TextAlign.Center
                     )
                 }
 
@@ -142,39 +188,17 @@ fun AppUpdateDialog(
                     ) {
                         OutlinedButton(
                             onClick = onDismiss,
-                            modifier = Modifier.weight(1f).height(44.dp),
-                            shape = RoundedCornerShape(10.dp)
+                            modifier = Modifier.weight(1f).height(46.dp),
+                            shape = RoundedCornerShape(32.dp)
                         ) {
-                            Text("Để sau", fontSize = 13.sp, color = Color(0xFF64748B))
+                            Text("Để sau", fontSize = 13.sp, color = TextMuted)
                         }
 
                         Button(
-                            onClick = {
-                                if (!downloader.hasInstallPermission()) {
-                                    downloader.openInstallPermissionSettings()
-                                    return@Button
-                                }
-                                isDownloading = true
-                                downloadError = null
-                                coroutineScope.launch {
-                                    val result = downloader.downloadApk(updateInfo.downloadUrl) { progress ->
-                                        downloadProgress = progress
-                                    }
-                                    isDownloading = false
-                                    if (result.isSuccess) {
-                                        val file = result.getOrNull()
-                                        if (file != null && file.exists()) {
-                                            downloader.installApk(file)
-                                            onDismiss()
-                                        }
-                                    } else {
-                                        downloadError = result.exceptionOrNull()?.message ?: "Lỗi tải file"
-                                    }
-                                }
-                            },
-                            modifier = Modifier.weight(1.3f).height(44.dp),
-                            shape = RoundedCornerShape(10.dp),
-                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF6366F1))
+                            onClick = { startDownloadAndInstall() },
+                            modifier = Modifier.weight(1.3f).height(46.dp),
+                            shape = RoundedCornerShape(32.dp),
+                            colors = ButtonDefaults.buttonColors(containerColor = PrimaryPurple)
                         ) {
                             Text("Cập nhật ngay", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = Color.White)
                         }

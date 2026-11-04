@@ -1,16 +1,19 @@
 package com.seazen.task.data
 
 import java.time.LocalDate
+import java.time.ZoneId
+
+private val VIETNAM_ZONE: ZoneId = ZoneId.of("Asia/Ho_Chi_Minh")
 
 fun parseLocalDate(raw: String?): LocalDate? {
     if (raw.isNullOrBlank()) return null
     val trimmed = raw.trim()
     return try {
-        if (trimmed.endsWith("Z", ignoreCase = true) || (trimmed.contains("T") && (trimmed.contains("+") || trimmed.contains("-", true) && trimmed.indexOf("-", 10) > 0))) {
+        if (trimmed.endsWith("Z", ignoreCase = true) || (trimmed.contains("T") && (trimmed.contains("+") || (trimmed.indexOf("-", 10) > 0)))) {
             try {
-                java.time.Instant.parse(trimmed).atZone(java.time.ZoneId.systemDefault()).toLocalDate()
+                java.time.Instant.parse(trimmed).atZone(VIETNAM_ZONE).toLocalDate()
             } catch (_: Exception) {
-                java.time.OffsetDateTime.parse(trimmed).atZoneSameInstant(java.time.ZoneId.systemDefault()).toLocalDate()
+                java.time.OffsetDateTime.parse(trimmed).atZoneSameInstant(VIETNAM_ZONE).toLocalDate()
             }
         } else if (trimmed.contains("T")) {
             try {
@@ -52,7 +55,7 @@ data class TaskChinhItem(
     val phongBan: String? = "SeaZen Tech",
     val phanLoaiTask: String? = "Phòng ban",
     val phanLoaiViec: String? = "Kế hoạch",
-    val trangThai: String? = "Đang làm",
+    val trangThai: String? = "Đang thực hiện",
     val creatorName: String? = "",
     val creatorEmail: String? = "",
     val ccName: String? = "",
@@ -70,7 +73,7 @@ data class TaskChinhItem(
     val safePhongBan: String get() = if (phongBan.isNullOrBlank()) "SeaZen Tech" else phongBan
     val safePhanLoaiTask: String get() = if (phanLoaiTask.isNullOrBlank()) "Phòng ban" else phanLoaiTask
     val safePhanLoaiViec: String get() = if (phanLoaiViec.isNullOrBlank()) "Kế hoạch" else phanLoaiViec
-    val safeTrangThai: String get() = if (trangThai.isNullOrBlank()) "Đang làm" else trangThai
+    val safeTrangThai: String get() = if (trangThai.isNullOrBlank()) "Đang thực hiện" else trangThai
     val safeProgress: Int get() = progress.coerceIn(0, 100)
     val safeCreatorName: String get() = creatorName ?: ""
     val safeCreatorEmail: String get() = creatorEmail ?: ""
@@ -108,7 +111,10 @@ data class TaskChinhItem(
     }
 
     fun isOverdue(today: LocalDate = LocalDate.now()): Boolean {
-        if (safeProgress >= 100 || safeTrangThai.contains("Hoàn thành")) return false
+        if (safeProgress >= 100 ||
+            safeTrangThai.contains("Hoàn thành", ignoreCase = true) ||
+            safeTrangThai.contains("Hoan thanh", ignoreCase = true)
+        ) return false
         val end = parsedEndDate ?: return false
         return end.isBefore(today)
     }

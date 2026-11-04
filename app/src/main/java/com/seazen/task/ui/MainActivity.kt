@@ -54,6 +54,7 @@ import java.time.YearMonth
 
 class MainActivity : ComponentActivity() {
     private val currentIntentState = mutableStateOf<Intent?>(null)
+    private val resumeTriggerState = mutableStateOf(0L)
 
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
@@ -108,6 +109,7 @@ class MainActivity : ComponentActivity() {
                         AppNavigator(
                             repository = repository,
                             intentState = currentIntentState,
+                            resumeTrigger = resumeTriggerState.value,
                             appLang = appLang,
                             onSelectLang = {
                                 appLang = it
@@ -122,6 +124,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onResume() {
         super.onResume()
+        resumeTriggerState.value = System.currentTimeMillis()
         try {
             val repository = TaskRepository.getInstance(applicationContext)
             repository.notifyWidgetUpdate()
@@ -242,6 +245,7 @@ fun SZTaskTheme(content: @Composable () -> Unit) {
 fun AppNavigator(
     repository: TaskRepository,
     intentState: MutableState<Intent?>,
+    resumeTrigger: Long = 0L,
     appLang: String,
     onSelectLang: (String) -> Unit
 ) {
@@ -249,8 +253,8 @@ fun AppNavigator(
     var showLanding by remember { mutableStateOf(!repository.isConfigured()) }
     val appUpdateInfo by repository.appUpdateInfo.collectAsState()
 
-    // Tu dong kiem tra ban cap nhat moi ngay khi khoi chay
-    LaunchedEffect(Unit) {
+    // Tu dong kiem tra ban cap nhat moi ngay khi khoi chay hoac quay lai app
+    LaunchedEffect(resumeTrigger) {
         repository.checkForAppUpdate()
     }
 
@@ -262,12 +266,14 @@ fun AppNavigator(
             LandingScreen(
                 repository = repository,
                 appUpdateInfo = appUpdateInfo,
+                resumeTrigger = resumeTrigger,
                 onGetStarted = {}
             )
         } else if (isLoggedIn) {
             MainContainerScreen(
                 repository = repository,
                 intentState = intentState,
+                resumeTrigger = resumeTrigger,
                 appLang = appLang,
                 onSelectLang = onSelectLang,
                 onLogout = {
@@ -316,6 +322,7 @@ fun AppNavigator(
 fun MainContainerScreen(
     repository: TaskRepository,
     intentState: MutableState<Intent?>,
+    resumeTrigger: Long = 0L,
     appLang: String,
     onSelectLang: (String) -> Unit,
     onLogout: () -> Unit
@@ -350,9 +357,15 @@ fun MainContainerScreen(
     }
     val currentUserName = curUser?.name ?: repository.getSavedUserName()
 
-    // Tu dong dong bo SharePoint khi mo ung dung
-    LaunchedEffect(Unit) {
-        repository.fetchAllFromSharePoint()
+    var lastSyncTimeMs by remember { mutableStateOf(0L) }
+
+    // Tu dong dong bo SharePoint khi mo ung dung hoac quay lai tu nen (throttle 15s)
+    LaunchedEffect(resumeTrigger) {
+        val now = System.currentTimeMillis()
+        if (now - lastSyncTimeMs > 15_000L) {
+            lastSyncTimeMs = now
+            repository.fetchAllFromSharePoint()
+        }
     }
 
     // Phản hồi chuyển trang tức thì trên Navbar kèm vòng xoay tải dữ liệu mượt mà
@@ -443,6 +456,7 @@ fun MainContainerScreen(
                 onRefresh = {
                     coroutineScope.launch {
                         isRefreshing = true
+                        lastSyncTimeMs = System.currentTimeMillis()
                         repository.fetchAllFromSharePoint()
                         isRefreshing = false
                     }
@@ -609,6 +623,33 @@ fun MainContainerScreen(
                         val res = repository.toggleTaskCompletion(liveTask.id)
                         if (res.isSuccess) {
                             viewingTask = liveTask.copy(isCompleted = !liveTask.isCompleted)
+                        } else {
+                            Toast.makeText(
+                                context,
+                                res.exceptionOrNull()?.message ?: "Không thể cập nhật trạng thái",
+                                Toast.LENGTH_SHORT
+                            ).show()
+                        }
+                    }
+                }
+            },
+            onDelete = {
+                if (canEdit) {
+                    coroutineScope.launch {
+                        val res = repository.deleteTaskChiTiet(liveTask.id)
+                        if (res.isSuccess) {
+                            viewingTask = null
+                            Toast.makeText(
+                                context,
+                                if (appLang == "en") "Task deleted" else "Đã xóa công việc",
+                                Toast.LENGTH_SHORT
+                            ).show()
+                        } else {
+                            Toast.makeText(
+                                context,
+                                res.exceptionOrNull()?.message ?: "Không thể xóa công việc",
+                                Toast.LENGTH_SHORT
+                            ).show()
                         }
                     }
                 }
@@ -735,6 +776,7 @@ fun MainContainerScreen(
         AppUpdateDialog(
             updateInfo = appUpdateInfo!!,
             currentVersion = repository.getCurrentAppVersion(),
+            resumeTrigger = resumeTrigger,
             onDismiss = { showUpdateDialog = false }
         )
     }
@@ -1104,7 +1146,7 @@ fun MyTasksTab(
             "overdue" -> scopedTasks.filter { it.isOverdue(today) }
             else -> scopedTasks
         }
-        if (searchQuery.isNotBlank()) {
+        val filtered = if (searchQuery.isNotBlank()) {
             val q = searchQuery.trim().lowercase()
             base.filter {
                 it.safeTitle.lowercase().contains(q) ||
@@ -1112,6 +1154,11 @@ fun MyTasksTab(
                 it.safeAssigneeName.lowercase().contains(q)
             }
         } else base
+        filtered.sortedWith(
+            compareBy<TaskItem> { it.isCompleted }
+                .thenByDescending { it.isOverdue(today) && !it.isCompleted }
+                .thenBy { it.parsedEndDate ?: LocalDate.MAX }
+        )
     }
 
     val scopedProjects = remember(taskChinhList, userEmail, effectiveName, selectedScope) {
@@ -2379,11 +2426,18 @@ fun SettingsTab(
 ) {
     val str = AppStrings.of(LocalAppLanguage.current)
     val users by repository.users.collectAsState()
-    val appUpdateInfo by repository.appUpdateInfo.collectAsState()
-    var showUpdateDialog by remember { mutableStateOf(false) }
     val curUser = users.find { it.email.equals(userEmail, ignoreCase = true) }
-    val displayName = curUser?.name ?: if (userEmail.contains("@")) userEmail.substringBefore("@").replace(".", " ") else str.defaultUserName
-    val displayDept = curUser?.phongBan ?: "SeaZen Tech"
+    val savedName = repository.getSavedUserName()
+    val displayName = curUser?.name?.takeIf { it.isNotBlank() }
+        ?: savedName.takeIf { it.isNotBlank() }
+        ?: if (userEmail.contains("@")) userEmail.substringBefore("@").replace(".", " ") else str.defaultUserName
+    val userInitials = curUser?.initials ?: displayName.split(" ")
+        .filter { it.isNotBlank() }
+        .takeLast(2)
+        .mapNotNull { it.firstOrNull()?.uppercaseChar() }
+        .joinToString("")
+        .ifBlank { "SZ" }
+    val displayDept = curUser?.phongBan?.takeIf { it.isNotBlank() } ?: "SeaZen Tech"
     val isVi = appLang == "vi"
 
     LazyColumn(
@@ -2421,7 +2475,7 @@ fun SettingsTab(
                         modifier = Modifier.size(54.dp)
                     ) {
                         Box(contentAlignment = Alignment.Center) {
-                            Text(text = "SZ", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                            Text(text = userInitials, fontSize = 18.sp, fontWeight = FontWeight.Bold, color = Color.White)
                         }
                     }
 
@@ -2937,12 +2991,14 @@ fun TaskDetailBottomSheet(
     canEdit: Boolean = true,
     onDismiss: () -> Unit,
     onToggle: () -> Unit,
+    onDelete: (() -> Unit)? = null,
     onOpenParentProject: ((Long) -> Unit)? = null
 ) {
     val lang = LocalAppLanguage.current
     val str = AppStrings.of(lang)
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val scrollState = rememberScrollState()
+    var showDeleteConfirm by remember { mutableStateOf(false) }
 
     val effectiveParentTitle = task.safeTaskChinhTitle.ifBlank { parentProject?.safeTitle ?: "" }
     val effectiveParentId = task.taskChinhId ?: parentProject?.id
@@ -3094,17 +3150,72 @@ fun TaskDetailBottomSheet(
             Spacer(modifier = Modifier.height(6.dp))
 
             if (canEdit) {
-                Button(
-                    onClick = onToggle,
-                    modifier = Modifier.fillMaxWidth().height(48.dp),
-                    shape = RoundedCornerShape(12.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = if (task.isCompleted) TextMuted else PrimaryPurple)
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
-                    Text(
-                        text = if (task.isCompleted) str.actionMarkPending else str.actionMarkCompleted,
-                        fontWeight = FontWeight.SemiBold
-                    )
+                    Button(
+                        onClick = onToggle,
+                        modifier = Modifier.weight(1f).height(48.dp),
+                        shape = RoundedCornerShape(12.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = if (task.isCompleted) TextMuted else PrimaryPurple)
+                    ) {
+                        Text(
+                            text = if (task.isCompleted) str.actionMarkPending else str.actionMarkCompleted,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                    }
+                    if (onDelete != null) {
+                        OutlinedButton(
+                            onClick = { showDeleteConfirm = true },
+                            modifier = Modifier.height(48.dp),
+                            shape = RoundedCornerShape(12.dp),
+                            border = BorderStroke(1.dp, Color(0xFFFECACA)),
+                            colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFFDC2626))
+                        ) {
+                            Icon(Icons.Default.DeleteOutline, contentDescription = str.actionDelete, modifier = Modifier.size(18.dp))
+                        }
+                    }
                 }
+            }
+            if (showDeleteConfirm && onDelete != null) {
+                AlertDialog(
+                    onDismissRequest = { showDeleteConfirm = false },
+                    title = {
+                        Text(
+                            text = if (lang == "en") "Delete Task" else "Xóa công việc",
+                            fontSize = 16.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = TextDark
+                        )
+                    },
+                    text = {
+                        Text(
+                            text = if (lang == "en") "Are you sure you want to delete this task from SharePoint?" else "Bạn có chắc chắn muốn xóa công việc này khỏi SharePoint?",
+                            fontSize = 13.sp,
+                            color = TextMuted
+                        )
+                    },
+                    confirmButton = {
+                        Button(
+                            onClick = {
+                                showDeleteConfirm = false
+                                onDelete()
+                            },
+                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFDC2626)),
+                            shape = RoundedCornerShape(8.dp)
+                        ) {
+                            Text(str.actionDelete, color = Color.White, fontWeight = FontWeight.Bold)
+                        }
+                    },
+                    dismissButton = {
+                        TextButton(onClick = { showDeleteConfirm = false }) {
+                            Text(str.actionCancel, color = TextMuted)
+                        }
+                    },
+                    containerColor = Color.White,
+                    shape = RoundedCornerShape(16.dp)
+                )
             } else {
                 Button(
                     onClick = {},
@@ -3160,8 +3271,8 @@ fun AddChildTaskBottomSheet(
     val scrollState = rememberScrollState()
 
     var title by remember { mutableStateOf("") }
-    var startDate by remember { mutableStateOf(defaultStartDate.ifBlank { LocalDate.now().toString() }) }
-    var endDate by remember { mutableStateOf(defaultEndDate.ifBlank { LocalDate.now().plusDays(2).toString() }) }
+    var startDate by remember { mutableStateOf((parseLocalDate(defaultStartDate) ?: LocalDate.now()).toString()) }
+    var endDate by remember { mutableStateOf((parseLocalDate(defaultEndDate) ?: LocalDate.now().plusDays(2)).toString()) }
     var selectedAssignee by remember(users, currentUserEmail) {
         val found = users.find { it.email.equals(currentUserEmail, ignoreCase = true) }
             ?: users.firstOrNull()
@@ -3413,7 +3524,7 @@ fun ProjectDetailBottomSheet(
                     DetailRow(label = str.labelCc, value = "${project.safeCcName} (${project.safeCcEmail})")
                 }
                 if (project.safeNewEndDate.isNotBlank()) {
-                    DetailRow(label = str.labelNewDeadline, value = "${project.safeNewEndDate} (${project.safeExtReason})")
+                    DetailRow(label = str.labelNewDeadline, value = "${CalendarUtils.formatSingleDate(project.safeNewEndDate)} (${project.safeExtReason})")
                 }
             }
 
@@ -3462,7 +3573,7 @@ fun ProjectDetailBottomSheet(
                                 color = Color(0xFF92400E)
                             )
                             Text(
-                                text = "${str.labelDue} ${project.safeNewEndDate} • ${str.labelReason} ${project.safeExtReason.ifBlank { str.labelNoReason }}",
+                                text = "${str.labelDue} ${CalendarUtils.formatSingleDate(project.safeNewEndDate)} • ${str.labelReason} ${project.safeExtReason.ifBlank { str.labelNoReason }}",
                                 fontSize = 11.sp,
                                 color = Color(0xFFB45309)
                             )
@@ -3529,7 +3640,7 @@ fun ProjectDetailBottomSheet(
                     text = {
                         Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                             Text(
-                                text = "${str.labelDue} ${project.safeEndDate.ifBlank { "--" }}",
+                                text = "${str.labelDue} ${CalendarUtils.formatSingleDate(project.safeEndDate).ifBlank { "--" }}",
                                 fontSize = 12.sp,
                                 color = TextMuted
                             )
@@ -3592,8 +3703,8 @@ fun ProjectDetailBottomSheet(
                     projectTitle = project.safeTitle,
                     currentUserEmail = currentUserEmail,
                     users = users,
-                    defaultStartDate = project.safeStartDate,
-                    defaultEndDate = project.safeEndDate,
+                    defaultStartDate = (project.parsedStartDate ?: LocalDate.now()).toString(),
+                    defaultEndDate = (project.parsedEndDate ?: LocalDate.now().plusDays(2)).toString(),
                     onDismiss = { showAddChildSheet = false },
                     onAdd = { cTitle, cStart, cEnd, cName, cEmail ->
                         showAddChildSheet = false
@@ -4154,6 +4265,7 @@ fun CreateTaskBottomSheet(
 fun LandingScreen(
     repository: TaskRepository,
     appUpdateInfo: AppUpdateInfo? = null,
+    resumeTrigger: Long = 0L,
     onGetStarted: () -> Unit
 ) {
     val context = LocalContext.current
@@ -4165,7 +4277,47 @@ fun LandingScreen(
     var isDownloading by remember { mutableStateOf(false) }
     var downloadProgress by remember { mutableStateOf(0) }
     var downloadError by remember { mutableStateOf<String?>(null) }
+    var waitingForInstallPermission by remember { mutableStateOf(false) }
     val downloader = remember { AppUpdateDownloader(context) }
+
+    fun triggerMandatoryUpdate() {
+        val info = appUpdateInfo ?: return
+        if (isDownloading) return
+        if (!downloader.hasInstallPermission()) {
+            waitingForInstallPermission = true
+            Toast.makeText(
+                context,
+                if (lang == "en") "Please grant install permission for SZ Task (required once)"
+                else "Vui lòng cho phép cài đặt cho SZ Task (1 lần duy nhất trong Cài đặt)",
+                Toast.LENGTH_LONG
+            ).show()
+            downloader.openInstallPermissionSettings()
+            return
+        }
+        waitingForInstallPermission = false
+        isDownloading = true
+        downloadError = null
+        coroutineScope.launch {
+            val result = downloader.downloadApk(info.downloadUrl) { progress ->
+                downloadProgress = progress
+            }
+            isDownloading = false
+            if (result.isSuccess) {
+                val file = result.getOrNull()
+                if (file != null && file.exists()) {
+                    downloader.installApk(file)
+                }
+            } else {
+                downloadError = result.exceptionOrNull()?.message ?: "Lỗi tải bản cập nhật"
+            }
+        }
+    }
+
+    LaunchedEffect(resumeTrigger) {
+        if (waitingForInstallPermission && downloader.hasInstallPermission()) {
+            triggerMandatoryUpdate()
+        }
+    }
 
     Box(
         modifier = Modifier
@@ -4398,34 +4550,7 @@ fun LandingScreen(
                         // Nut hanh dong Cap nhat ngay (Pill CTA)
                         if (!isDownloading) {
                             Button(
-                                onClick = {
-                                    if (!downloader.hasInstallPermission()) {
-                                        Toast.makeText(
-                                            context,
-                                            if (lang == "en") "Please grant install permission for SZ Task (required once)"
-                                            else "Vui lòng cho phép cài đặt cho SZ Task (1 lần duy nhất trong Cài đặt)",
-                                            Toast.LENGTH_LONG
-                                        ).show()
-                                        downloader.openInstallPermissionSettings()
-                                        return@Button
-                                    }
-                                    isDownloading = true
-                                    downloadError = null
-                                    coroutineScope.launch {
-                                        val result = downloader.downloadApk(appUpdateInfo.downloadUrl) { progress ->
-                                            downloadProgress = progress
-                                        }
-                                        isDownloading = false
-                                        if (result.isSuccess) {
-                                            val file = result.getOrNull()
-                                            if (file != null && file.exists()) {
-                                                downloader.installApk(file)
-                                            }
-                                        } else {
-                                            downloadError = result.exceptionOrNull()?.message ?: "Lỗi tải bản cập nhật"
-                                        }
-                                    }
-                                },
+                                onClick = { triggerMandatoryUpdate() },
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .height(52.dp),

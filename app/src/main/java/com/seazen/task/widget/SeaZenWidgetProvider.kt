@@ -66,8 +66,17 @@ class SeaZenWidgetProvider : AppWidgetProvider() {
                     CoroutineScope(Dispatchers.IO).launch {
                         try {
                             val repository = TaskRepository.getInstance(context)
-                            repository.toggleTaskCompletion(taskId)
+                            val res = repository.toggleTaskCompletion(taskId)
                             notifyAllWidgets(context)
+                            if (res.isFailure) {
+                                withContext(Dispatchers.Main) {
+                                    Toast.makeText(
+                                        context,
+                                        res.exceptionOrNull()?.message ?: "Không thể cập nhật trạng thái",
+                                        Toast.LENGTH_SHORT
+                                    ).show()
+                                }
+                            }
                         } catch (_: Exception) {
                         } finally {
                             pendingResult.finish()
@@ -213,6 +222,9 @@ class SeaZenWidgetProvider : AppWidgetProvider() {
         fun updateAppWidget(context: Context, appWidgetManager: AppWidgetManager, appWidgetId: Int) {
             try {
                 val repository = TaskRepository.getInstance(context)
+                if (repository.tasks.value.isEmpty() && repository.taskChinhList.value.isEmpty()) {
+                    repository.loadCachedData()
+                }
                 val prefs = context.getSharedPreferences("seazen_task_prefs", Context.MODE_PRIVATE)
                 val allTasks = repository.tasks.value
                 val currentUserEmail = repository.getSavedEmail().lowercase().trim()

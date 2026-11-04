@@ -36,6 +36,9 @@ class SeaZenWidgetViewsFactory(private val context: Context) : RemoteViewsServic
     private fun loadData() {
         try {
             val repository = TaskRepository.getInstance(context)
+            if (repository.tasks.value.isEmpty() && repository.taskChinhList.value.isEmpty()) {
+                repository.loadCachedData()
+            }
             val prefs = context.getSharedPreferences("seazen_task_prefs", Context.MODE_PRIVATE)
             val allTasks = repository.tasks.value
             val allTaskChinh = repository.taskChinhList.value
@@ -123,10 +126,10 @@ class SeaZenWidgetViewsFactory(private val context: Context) : RemoteViewsServic
         views.setTextViewText(R.id.widget_item_title, task.safeTitle)
 
         // 3. Subtitle (phần chữ mờ mờ phía dưới): Tên của task chính
+        val parent = projectMap[task.taskChinhId ?: -1L]
         val parentTitle = if (task.safeTaskChinhTitle.isNotBlank()) {
             task.safeTaskChinhTitle
         } else {
-            val parent = projectMap[task.taskChinhId ?: -1L]
             parent?.safeTitle?.takeIf { it.isNotBlank() } ?: "Kế hoạch chung"
         }
         views.setTextViewText(R.id.widget_item_sub, parentTitle)
@@ -154,7 +157,7 @@ class SeaZenWidgetViewsFactory(private val context: Context) : RemoteViewsServic
                 views.setTextColor(R.id.widget_item_tag, Color.parseColor("#D97706"))
             }
             else -> {
-                val dept = if (task.safePhongBan.isNotBlank()) task.safePhongBan else "Cá nhân"
+                val dept = task.safePhongBan.ifBlank { parent?.safePhongBan ?: "Cá nhân" }
                 views.setTextViewText(R.id.widget_item_tag, dept)
                 views.setInt(R.id.widget_item_tag, "setBackgroundResource", R.drawable.widget_tag_readonly)
                 views.setTextColor(R.id.widget_item_tag, Color.parseColor("#5B4DF6"))
@@ -180,19 +183,4 @@ class SeaZenWidgetViewsFactory(private val context: Context) : RemoteViewsServic
     override fun getViewTypeCount(): Int = 1
     override fun getItemId(position: Int): Long = if (position in taskList.indices) taskList[position].id else position.toLong()
     override fun hasStableIds(): Boolean = true
-
-    private fun formatShortTime(raw: String?): String {
-        if (raw.isNullOrBlank()) return "Cả ngày"
-        return try {
-            if (raw.contains("T")) {
-                val timePart = raw.split("T")[1].substring(0, 5)
-                timePart
-            } else {
-                val parts = raw.trim().split("-")
-                if (parts.size == 3) "${parts[2]}/${parts[1]}" else raw
-            }
-        } catch (_: Exception) {
-            "Cả ngày"
-        }
-    }
 }
