@@ -418,35 +418,11 @@ class TaskRepository(private val context: Context) {
     }
 
     fun isNewerVersion(serverVer: String, currentVer: String): Boolean {
-        try {
-            val cleanServer = serverVer.lowercase().replace("version", "").replace("v.", "").replace("v", "").trim()
-            val cleanCurrent = currentVer.lowercase().replace("version", "").replace("v.", "").replace("v", "").trim()
+        val cleanServer = serverVer.lowercase().replace("version", "").replace("v.", "").replace("v", "").trim()
+        val cleanCurrent = currentVer.lowercase().replace("version", "").replace("v.", "").replace("v", "").trim()
 
-            if (cleanServer.isBlank() || cleanCurrent.isBlank()) return false
-            if (cleanServer == cleanCurrent) return false
-
-            val sParts = cleanServer.split(".").mapNotNull { it.toIntOrNull() }
-            val cParts = cleanCurrent.split(".").mapNotNull { it.toIntOrNull() }
-
-            val maxLen = maxOf(sParts.size, cParts.size)
-            for (i in 0 until maxLen) {
-                val s = sParts.getOrElse(i) { 0 }
-                val c = cParts.getOrElse(i) { 0 }
-                if (s > c) return true
-                if (s < c) {
-                    // Xu ly chong nham lan tien to 0.9.x va 1.9.x (vi du server cau hinh 0.9.2 nhung app la 1.9.1)
-                    if (i == 0 && (s == 0 && c == 1 || s == 1 && c == 0) && sParts.size >= 3 && cParts.size >= 3 && sParts[1] == cParts[1]) {
-                        val sPatch = sParts[2]
-                        val cPatch = cParts[2]
-                        if (sPatch > cPatch) return true
-                    }
-                    return false
-                }
-            }
-            return false
-        } catch (_: Exception) {
-            return false
-        }
+        if (cleanServer.isBlank() || cleanCurrent.isBlank()) return false
+        return cleanServer != cleanCurrent
     }
 
     suspend fun checkForAppUpdate(token: String? = null): AppUpdateInfo? = withContext(Dispatchers.IO) {

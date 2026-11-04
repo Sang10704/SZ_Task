@@ -228,20 +228,35 @@ def main():
     print(f"Phien ban hien tai trong du an: v{curr_ver} (build code: {curr_code})")
     print()
 
-    user_input = input(f"Nhap phien ban moi can dong goi [Nhan Enter de dung {curr_ver}]: ").strip()
-    if user_input:
-        target_version = user_input.lstrip("v").strip()
-    else:
+    auto_mode = "--auto" in sys.argv
+    cli_ver = None
+    for i, arg in enumerate(sys.argv):
+        if arg == "--version" and i + 1 < len(sys.argv):
+            cli_ver = sys.argv[i + 1].lstrip("v").strip()
+
+    if cli_ver:
+        target_version = cli_ver
+    elif auto_mode:
         target_version = curr_ver
+    else:
+        user_input = input(f"Nhap phien ban moi can dong goi [Nhan Enter de dung {curr_ver}]: ").strip()
+        if user_input:
+            target_version = user_input.lstrip("v").strip()
+        else:
+            target_version = curr_ver
     target_code = curr_code + 1
 
     print(f"\n-> Phien ban se dong goi: v{target_version} (versionCode: {target_code})")
 
-    gh_choice = input("\nTu dong tai & ghi de SZ_Task.apk len GitHub Release 'Sz_Task'? (Y/n): ").strip().lower()
-    should_upload_gh = gh_choice != "n"
+    if auto_mode:
+        should_upload_gh = True
+        should_update_sp = True
+    else:
+        gh_choice = input("\nTu dong tai & ghi de SZ_Task.apk len GitHub Release 'Sz_Task'? (Y/n): ").strip().lower()
+        should_upload_gh = gh_choice != "n"
 
-    sp_choice = input("Dong bo phien ban len SharePoint 'POWERAPP LATEST VERSION' sau khi build? (Y/n): ").strip().lower()
-    should_update_sp = sp_choice != "n"
+        sp_choice = input("Dong bo phien ban len SharePoint 'POWERAPP LATEST VERSION' sau khi build? (Y/n): ").strip().lower()
+        should_update_sp = sp_choice != "n"
 
     print("\nDang cap nhat thong so phien ban vao ma nguon...")
     update_gradle_version(target_version, target_code)
@@ -260,11 +275,13 @@ def main():
         if should_update_sp:
             update_sharepoint_version(target_version)
 
-        open_folder = input("\nMo thu muc chua file SZ_Task.apk tren Windows Explorer? (Y/n): ").strip().lower()
-        if open_folder != "n":
-            subprocess.run(["explorer", f"/select,{DEST_APK_ROOT}"])
+        if not auto_mode:
+            open_folder = input("\nMo thu muc chua file SZ_Task.apk tren Windows Explorer? (Y/n): ").strip().lower()
+            if open_folder != "n":
+                subprocess.run(["explorer", f"/select,{DEST_APK_ROOT}"])
 
-    input("\nNhan Enter de thoat...")
+    if not auto_mode:
+        input("\nNhan Enter de thoat...")
 
 
 if __name__ == "__main__":
