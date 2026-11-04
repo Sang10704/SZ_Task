@@ -1988,8 +1988,7 @@ fun DepartmentProjectCard(
                     },
                     text = {
                         Text(
-                            text = if (lang == "en") "Are you sure you want to delete "${targetChild.safeTitle}"?"
-                            else "Bạn có chắc chắn muốn xóa công việc "${targetChild.safeTitle}"?",
+                            text = if (lang == "en") "Are you sure you want to delete '${targetChild.safeTitle}'?" else "Bạn có chắc chắn muốn xóa công việc '${targetChild.safeTitle}'?",
                             fontSize = 13.sp,
                             color = TextMuted
                         )
@@ -3104,8 +3103,7 @@ fun PersonalTaskCard(
             },
             text = {
                 Text(
-                    text = if (lang == "en") "Are you sure you want to delete "${task.safeTitle}"?"
-                    else "Bạn có chắc chắn muốn xóa công việc "${task.safeTitle}" khỏi danh sách?",
+                    text = if (lang == "en") "Are you sure you want to delete '${task.safeTitle}'?" else "Bạn có chắc chắn muốn xóa công việc '${task.safeTitle}' khỏi danh sách?",
                     fontSize = 13.sp,
                     color = TextMuted
                 )
@@ -4012,8 +4010,7 @@ fun ProjectDetailBottomSheet(
                     },
                     text = {
                         Text(
-                            text = if (lang == "en") "Are you sure you want to delete "${targetSub.safeTitle}"?"
-                            else "Bạn có chắc chắn muốn xóa công việc con "${targetSub.safeTitle}"?",
+                            text = if (lang == "en") "Are you sure you want to delete '${targetSub.safeTitle}'?" else "Bạn có chắc chắn muốn xóa công việc con '${targetSub.safeTitle}'?",
                             fontSize = 13.sp,
                             color = TextMuted
                         )
