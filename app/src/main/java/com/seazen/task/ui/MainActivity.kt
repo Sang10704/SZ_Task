@@ -3454,7 +3454,7 @@ fun AddChildTaskBottomSheet(
 
     var title by remember { mutableStateOf("") }
     var startDate by remember { mutableStateOf((parseLocalDate(defaultStartDate) ?: LocalDate.now()).toString()) }
-    var endDate by remember { mutableStateOf((parseLocalDate(defaultEndDate) ?: LocalDate.now().plusDays(2)).toString()) }
+    var endDate by remember { mutableStateOf((parseLocalDate(defaultEndDate) ?: LocalDate.now()).toString()) }
     var selectedAssignee by remember(users, currentUserEmail) {
         val found = users.find { it.email.equals(currentUserEmail, ignoreCase = true) }
             ?: users.firstOrNull()
@@ -3887,8 +3887,8 @@ fun ProjectDetailBottomSheet(
                     projectTitle = project.safeTitle,
                     currentUserEmail = currentUserEmail,
                     users = users,
-                    defaultStartDate = (project.parsedStartDate ?: LocalDate.now()).toString(),
-                    defaultEndDate = (project.parsedEndDate ?: LocalDate.now().plusDays(2)).toString(),
+                    defaultStartDate = LocalDate.now().toString(),
+                    defaultEndDate = LocalDate.now().toString(),
                     onDismiss = { showAddChildSheet = false },
                     onAdd = { cTitle, cStart, cEnd, cName, cEmail ->
                         showAddChildSheet = false
@@ -4244,7 +4244,12 @@ fun CreateTaskBottomSheet(
                         .weight(1f)
                         .clip(RoundedCornerShape(8.dp))
                         .background(if (isChildTaskMode) Color.White else Color.Transparent)
-                        .clickable { isChildTaskMode = true }
+                        .clickable {
+                            isChildTaskMode = true
+                            val todayStr = LocalDate.now().toString()
+                            startDate = todayStr
+                            endDate = todayStr
+                        }
                         .padding(vertical = 8.dp),
                     contentAlignment = Alignment.Center
                 ) {
