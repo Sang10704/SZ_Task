@@ -681,6 +681,24 @@ fun MainContainerScreen(
                     repository.toggleTaskCompletion(childId)
                 }
             },
+            onDeleteChild = { childId ->
+                coroutineScope.launch {
+                    val res = repository.deleteTaskChiTiet(childId)
+                    if (res.isSuccess) {
+                        Toast.makeText(
+                            context,
+                            if (appLang == "en") "Subtask deleted" else "Đã xóa công việc con",
+                            Toast.LENGTH_SHORT
+                        ).show()
+                    } else {
+                        Toast.makeText(
+                            context,
+                            res.exceptionOrNull()?.message ?: "Không thể xóa công việc",
+                            Toast.LENGTH_SHORT
+                        ).show()
+                    }
+                }
+            },
             onTaskClick = { clickedTask ->
                 viewingProject = null
                 viewingTask = clickedTask
@@ -1112,7 +1130,9 @@ fun MyTasksTab(
     onTaskClick: (TaskItem) -> Unit,
     onProjectClick: (TaskChinhItem) -> Unit
 ) {
-    val str = AppStrings.of(LocalAppLanguage.current)
+    val context = LocalContext.current
+    val lang = LocalAppLanguage.current
+    val str = AppStrings.of(lang)
     val coroutineScope = rememberCoroutineScope()
     var selectedScope by remember { mutableStateOf("PERSONAL") } // MẶC ĐỊNH LUÔN LÀ CÔNG VIỆC CÁ NHÂN
     var filterType by remember { mutableStateOf("today") } // "today", "upcoming", "overdue", "all"
@@ -1492,6 +1512,26 @@ fun MyTasksTab(
                             }
                         }
                     },
+                    onDelete = if (canEdit) {
+                        {
+                            coroutineScope.launch {
+                                val res = repository.deleteTaskChiTiet(task.id)
+                                if (res.isSuccess) {
+                                    Toast.makeText(
+                                        context,
+                                        if (lang == "en") "Task deleted" else "Đã xóa công việc",
+                                        Toast.LENGTH_SHORT
+                                    ).show()
+                                } else {
+                                    Toast.makeText(
+                                        context,
+                                        res.exceptionOrNull()?.message ?: "Không thể xóa công việc",
+                                        Toast.LENGTH_SHORT
+                                    ).show()
+                                }
+                            }
+                        }
+                    } else null,
                     onClick = { onTaskClick(task) }
                 )
             }
@@ -1514,7 +1554,9 @@ fun DepartmentTab(
     onProjectClick: (TaskChinhItem) -> Unit,
     onTaskClick: (TaskItem) -> Unit
 ) {
-    val str = AppStrings.of(LocalAppLanguage.current)
+    val context = LocalContext.current
+    val lang = LocalAppLanguage.current
+    val str = AppStrings.of(lang)
     val coroutineScope = rememberCoroutineScope()
     val resolvedEmail = remember(userEmail) {
         userEmail.ifBlank { repository.getSavedEmail() }.lowercase().trim()
@@ -1665,6 +1707,11 @@ fun DepartmentTab(
                             repository.toggleTaskCompletion(taskId)
                         }
                     },
+                    onDeleteChild = { taskId ->
+                        coroutineScope.launch {
+                            repository.deleteTaskChiTiet(taskId)
+                        }
+                    },
                     onClick = { onProjectClick(proj) },
                     onTaskClick = onTaskClick,
                     onAddChildClick = { onProjectClick(proj) }
@@ -1686,6 +1733,7 @@ fun DepartmentProjectCard(
     currentUserEmail: String = "",
     currentUserName: String = "",
     onToggleChild: (Long) -> Unit,
+    onDeleteChild: ((Long) -> Unit)? = null,
     onClick: () -> Unit = {},
     onTaskClick: (TaskItem) -> Unit = {},
     onAddChildClick: () -> Unit = {}
@@ -1694,6 +1742,7 @@ fun DepartmentProjectCard(
     val str = AppStrings.of(lang)
     val displayProgress = project.computedProgress(childTasks)
     val isOverdue = project.isOverdue() && displayProgress < 100
+    var deletingChildTask by remember { mutableStateOf<TaskItem?>(null) }
 
     Card(
         modifier = Modifier
@@ -1908,9 +1957,64 @@ fun DepartmentProjectCard(
                                     )
                                 }
                             }
+                            if (canEditChild && onDeleteChild != null) {
+                                IconButton(
+                                    onClick = { deletingChildTask = ct },
+                                    modifier = Modifier.size(28.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.DeleteOutline,
+                                        contentDescription = str.actionDelete,
+                                        tint = Color(0xFFEF4444),
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                }
+                            }
                         }
                     }
                 }
+            }
+
+            deletingChildTask?.let { targetChild ->
+                AlertDialog(
+                    onDismissRequest = { deletingChildTask = null },
+                    title = {
+                        Text(
+                            text = if (lang == "en") "Delete Subtask" else "Xóa công việc con",
+                            fontSize = 16.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = TextDark
+                        )
+                    },
+                    text = {
+                        Text(
+                            text = if (lang == "en") "Are you sure you want to delete "${targetChild.safeTitle}"?"
+                            else "Bạn có chắc chắn muốn xóa công việc "${targetChild.safeTitle}"?",
+                            fontSize = 13.sp,
+                            color = TextMuted
+                        )
+                    },
+                    confirmButton = {
+                        Button(
+                            onClick = {
+                                val idToDelete = targetChild.id
+                                deletingChildTask = null
+                                onDeleteChild?.invoke(idToDelete)
+                            },
+                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFDC2626)),
+                            shape = RoundedCornerShape(8.dp)
+                        ) {
+                            Text(str.actionDelete, color = Color.White, fontWeight = FontWeight.Bold)
+                        }
+                    },
+                    dismissButton = {
+                        TextButton(onClick = { deletingChildTask = null }) {
+                            Text(str.actionCancel, color = TextMuted)
+                        }
+                    },
+                    containerColor = Color.White,
+                    shape = RoundedCornerShape(16.dp)
+                )
             }
 
             Spacer(modifier = Modifier.height(10.dp))
@@ -2382,6 +2486,13 @@ fun CalendarTab(
                             coroutineScope.launch { repository.toggleTaskCompletion(task.id) }
                         }
                     },
+                    onDelete = if (canEdit) {
+                        {
+                            coroutineScope.launch {
+                                repository.deleteTaskChiTiet(task.id)
+                            }
+                        }
+                    } else null,
                     onClick = { onTaskClick(task) }
                 )
             }
@@ -2424,7 +2535,9 @@ fun SettingsTab(
     onSelectLang: (String) -> Unit,
     onLogout: () -> Unit
 ) {
-    val str = AppStrings.of(LocalAppLanguage.current)
+    val context = LocalContext.current
+    val lang = LocalAppLanguage.current
+    val str = AppStrings.of(lang)
     val users by repository.users.collectAsState()
     val curUser = users.find { it.email.equals(userEmail, ignoreCase = true) }
     val savedName = repository.getSavedUserName()
@@ -2756,7 +2869,9 @@ fun FloatingAppNavBar(
     onTabSelect: (Int) -> Unit,
     onAddClick: () -> Unit
 ) {
-    val str = AppStrings.of(LocalAppLanguage.current)
+    val context = LocalContext.current
+    val lang = LocalAppLanguage.current
+    val str = AppStrings.of(lang)
     Box(
         modifier = Modifier
             .fillMaxWidth()
@@ -2848,10 +2963,12 @@ fun PersonalTaskCard(
     task: TaskItem,
     canEdit: Boolean = true,
     onToggle: () -> Unit,
+    onDelete: (() -> Unit)? = null,
     onClick: () -> Unit = {}
 ) {
     val lang = LocalAppLanguage.current
     val str = AppStrings.of(lang)
+    var showConfirmDelete by remember { mutableStateOf(false) }
 
     Card(
         modifier = Modifier
@@ -2956,7 +3073,63 @@ fun PersonalTaskCard(
                     )
                 }
             }
+
+            if (canEdit && onDelete != null) {
+                Spacer(modifier = Modifier.width(6.dp))
+                IconButton(
+                    onClick = { showConfirmDelete = true },
+                    modifier = Modifier.size(32.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.DeleteOutline,
+                        contentDescription = str.actionDelete,
+                        tint = Color(0xFFEF4444),
+                        modifier = Modifier.size(18.dp)
+                    )
+                }
+            }
         }
+    }
+
+    if (showConfirmDelete && onDelete != null) {
+        AlertDialog(
+            onDismissRequest = { showConfirmDelete = false },
+            title = {
+                Text(
+                    text = if (lang == "en") "Delete Personal Task" else "Xóa công việc cá nhân",
+                    fontSize = 16.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = TextDark
+                )
+            },
+            text = {
+                Text(
+                    text = if (lang == "en") "Are you sure you want to delete "${task.safeTitle}"?"
+                    else "Bạn có chắc chắn muốn xóa công việc "${task.safeTitle}" khỏi danh sách?",
+                    fontSize = 13.sp,
+                    color = TextMuted
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        showConfirmDelete = false
+                        onDelete()
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFDC2626)),
+                    shape = RoundedCornerShape(8.dp)
+                ) {
+                    Text(str.actionDelete, color = Color.White, fontWeight = FontWeight.Bold)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showConfirmDelete = false }) {
+                    Text(str.actionCancel, color = TextMuted)
+                }
+            },
+            containerColor = Color.White,
+            shape = RoundedCornerShape(16.dp)
+        )
     }
 }
 
@@ -2969,12 +3142,21 @@ fun isTaskRelatedToUser(
     if (com.seazen.task.widget.SeaZenWidgetProvider.isMyTask(task, currentUserEmail, currentUserName)) {
         return true
     }
+    if (task.safeAssigneeEmail.isBlank() && task.safeAssigneeName.isBlank()) {
+        return true
+    }
     if (parentProject != null) {
         val myEmail = currentUserEmail.trim().lowercase()
+        val myName = currentUserName.trim().lowercase()
         val pRespEmail = parentProject.safeResponsibleEmail.trim().lowercase()
         val pCreatorEmail = parentProject.safeCreatorEmail.trim().lowercase()
+        val pRespName = parentProject.safeResponsiblePerson.trim().lowercase()
+        val pCreatorName = parentProject.safeCreatorName.trim().lowercase()
         if (myEmail.isNotBlank()) {
-            if (pRespEmail == myEmail || pCreatorEmail == myEmail) return true
+            if (pRespEmail == myEmail || pCreatorEmail == myEmail || pRespEmail.contains(myEmail) || pCreatorEmail.contains(myEmail)) return true
+        }
+        if (myName.isNotBlank()) {
+            if (pRespName == myName || pCreatorName == myName || pRespName.contains(myName) || pCreatorName.contains(myName)) return true
         }
     }
     return false
@@ -3174,7 +3356,37 @@ fun TaskDetailBottomSheet(
                             colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFFDC2626))
                         ) {
                             Icon(Icons.Default.DeleteOutline, contentDescription = str.actionDelete, modifier = Modifier.size(18.dp))
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text(str.actionDelete, fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
                         }
+                    }
+                }
+            } else {
+                Button(
+                    onClick = {},
+                    enabled = false,
+                    modifier = Modifier.fillMaxWidth().height(48.dp),
+                    shape = RoundedCornerShape(12.dp),
+                    colors = ButtonDefaults.buttonColors(
+                        disabledContainerColor = Color(0xFFF1F5F9),
+                        disabledContentColor = Color(0xFF94A3B8)
+                    )
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Icon(
+                            Icons.Default.Lock,
+                            contentDescription = null,
+                            tint = Color(0xFF94A3B8),
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Text(
+                            text = if (lang == "en") "Read-Only (No edit permission)" else "Chỉ xem (Không có quyền sửa)",
+                            fontWeight = FontWeight.SemiBold,
+                            fontSize = 13.sp
+                        )
                     }
                 }
             }
@@ -3216,34 +3428,6 @@ fun TaskDetailBottomSheet(
                     containerColor = Color.White,
                     shape = RoundedCornerShape(16.dp)
                 )
-            } else {
-                Button(
-                    onClick = {},
-                    enabled = false,
-                    modifier = Modifier.fillMaxWidth().height(48.dp),
-                    shape = RoundedCornerShape(12.dp),
-                    colors = ButtonDefaults.buttonColors(
-                        disabledContainerColor = Color(0xFFF1F5F9),
-                        disabledContentColor = Color(0xFF94A3B8)
-                    )
-                ) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        Icon(
-                            Icons.Default.Lock,
-                            contentDescription = null,
-                            tint = Color(0xFF94A3B8),
-                            modifier = Modifier.size(16.dp)
-                        )
-                        Text(
-                            text = if (lang == "en") "Read-Only (No edit permission)" else "Chỉ xem (Không có quyền sửa)",
-                            fontWeight = FontWeight.SemiBold,
-                            fontSize = 13.sp
-                        )
-                    }
-                }
             }
         }
     }
@@ -3425,6 +3609,7 @@ fun ProjectDetailBottomSheet(
     users: List<SeaZenUser> = emptyList(),
     onDismiss: () -> Unit,
     onToggleChild: (Long) -> Unit,
+    onDeleteChild: ((Long) -> Unit)? = null,
     onTaskClick: ((TaskItem) -> Unit)? = null,
     onRequestExtension: ((newDate: String, reason: String) -> Unit)? = null,
     onAddChildTask: (title: String, sDate: String, eDate: String, name: String, email: String) -> Unit
@@ -3435,6 +3620,7 @@ fun ProjectDetailBottomSheet(
     val displayProgress = project.computedProgress(childTasks)
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val scrollState = rememberScrollState()
+    var deletingSubtask by remember { mutableStateOf<TaskItem?>(null) }
 
     var showExtensionDialog by remember { mutableStateOf(false) }
     var extNewDate by remember(project) {
@@ -3789,6 +3975,19 @@ fun ProjectDetailBottomSheet(
                                     )
                                 }
                             }
+                            if (canEditChild && onDeleteChild != null) {
+                                IconButton(
+                                    onClick = { deletingSubtask = ct },
+                                    modifier = Modifier.size(30.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.DeleteOutline,
+                                        contentDescription = str.actionDelete,
+                                        tint = Color(0xFFEF4444),
+                                        modifier = Modifier.size(17.dp)
+                                    )
+                                }
+                            }
                         }
                     }
                 }
@@ -3797,6 +3996,48 @@ fun ProjectDetailBottomSheet(
                     text = str.noSubtasks,
                     fontSize = 12.sp,
                     color = TextMuted
+                )
+            }
+
+            deletingSubtask?.let { targetSub ->
+                AlertDialog(
+                    onDismissRequest = { deletingSubtask = null },
+                    title = {
+                        Text(
+                            text = if (lang == "en") "Delete Subtask" else "Xóa công việc con",
+                            fontSize = 16.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = TextDark
+                        )
+                    },
+                    text = {
+                        Text(
+                            text = if (lang == "en") "Are you sure you want to delete "${targetSub.safeTitle}"?"
+                            else "Bạn có chắc chắn muốn xóa công việc con "${targetSub.safeTitle}"?",
+                            fontSize = 13.sp,
+                            color = TextMuted
+                        )
+                    },
+                    confirmButton = {
+                        Button(
+                            onClick = {
+                                val idToDel = targetSub.id
+                                deletingSubtask = null
+                                onDeleteChild?.invoke(idToDel)
+                            },
+                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFDC2626)),
+                            shape = RoundedCornerShape(8.dp)
+                        ) {
+                            Text(str.actionDelete, color = Color.White, fontWeight = FontWeight.Bold)
+                        }
+                    },
+                    dismissButton = {
+                        TextButton(onClick = { deletingSubtask = null }) {
+                            Text(str.actionCancel, color = TextMuted)
+                        }
+                    },
+                    containerColor = Color.White,
+                    shape = RoundedCornerShape(16.dp)
                 )
             }
         }
