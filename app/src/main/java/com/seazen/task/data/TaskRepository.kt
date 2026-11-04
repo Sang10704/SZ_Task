@@ -632,6 +632,10 @@ class TaskRepository(private val context: Context) {
                     defUpdate.await()
                 }
 
+                try {
+                    com.seazen.task.notification.TaskReminderManager.checkAndNotifyAfterSync(context)
+                } catch (_: Exception) {}
+
                 Result.success(Unit)
             } catch (e: Exception) {
                 Result.failure(e)
@@ -1466,5 +1470,255 @@ class TaskRepository(private val context: Context) {
         getCacheFile("users_cache.json").delete()
         prefs.edit().remove("tasks_json").remove("task_chinh_json").remove("users_json").apply()
         notifyWidgetUpdate()
+    }
+
+    // =========================================================================
+    // QUY CHUAN DINH KEM TEP SHAREPOINT (OAUTH2 BEARER TOKEN - NO COOKIE)
+    // =========================================================================
+
+    fun sanitizeSpAttachmentName(rawName: String): String {
+        val forbidden = setOf('~', '"', '#', '%', '&', '*', ':', '<', '>', '?', '/', '\\', '{', '|', '}')
+        val cleaned = rawName.trim()
+            .map { ch -> if (ch in forbidden || ch.isWhitespace()) '_' else ch }
+            .joinToString("")
+            .replace(Regex("_+"), "_")
+            .ifBlank { "attachment_${System.currentTimeMillis()}.dat" }
+        return if (cleaned.length > 110) {
+            val dotIdx = cleaned.lastIndexOf('.')
+            if (dotIdx > 0 && cleaned.length - dotIdx <= 10) {
+                val ext = cleaned.substring(dotIdx)
+                cleaned.substring(0, 100) + ext
+            } else {
+                cleaned.take(110)
+            }
+        } else {
+            cleaned
+        }
+    }
+
+    suspend fun fetchItemAttachments(isMainProject: Boolean, itemId: Long): List<SpAttachmentItem> = withContext(Dispatchers.IO) {
+        if (itemId <= 0L) return@withContext emptyList()
+        var activeToken = getValidToken() ?: return@withContext emptyList()
+        try {
+            val siteUrl = getSiteUrl().removeSuffix("/")
+            val listId = if (isMainProject) getListChinhId() else getListChiTietId()
+            val url = "$siteUrl/_api/web/lists(guid'$listId')/items($itemId)/AttachmentFiles"
+
+            var req = Request.Builder()
+                .url(url)
+                .header("Authorization", "Bearer $activeToken")
+                .header("Accept", "application/json;odata=verbose")
+                .header("Cache-Control", "no-cache")
+                .build()
+
+            var resp = httpClient.newCall(req).execute()
+            if (resp.code == 401) {
+                resp.close()
+                val refreshed = forceRefreshToken()
+                if (refreshed != null) {
+                    activeToken = refreshed
+                    req = Request.Builder()
+                        .url(url)
+                        .header("Authorization", "Bearer $activeToken")
+                        .header("Accept", "application/json;odata=verbose")
+                        .header("Cache-Control", "no-cache")
+                        .build()
+                    resp = httpClient.newCall(req).execute()
+                }
+            }
+
+            resp.use { r ->
+                if (!r.isSuccessful) return@withContext emptyList()
+                val body = r.body?.string() ?: "{}"
+                val json = gson.fromJson(body, JsonObject::class.java)
+                val results = json.getAsJsonObject("d")?.getAsJsonArray("results") ?: return@withContext emptyList()
+                val list = mutableListOf<SpAttachmentItem>()
+                for (elem in results) {
+                    val obj = elem.asJsonObject
+                    val fileName = obj.get("FileName")?.takeIf { !it.isJsonNull }?.asString ?: continue
+                    val relUrl = obj.get("ServerRelativeUrl")?.takeIf { !it.isJsonNull }?.asString ?: continue
+                    list.add(SpAttachmentItem(fileName = fileName, serverRelativeUrl = relUrl))
+                }
+                list
+            }
+        } catch (_: Exception) {
+            emptyList()
+        }
+    }
+
+    suspend fun uploadItemAttachment(
+        isMainProject: Boolean,
+        itemId: Long,
+        rawFileName: String,
+        fileBytes: ByteArray
+    ): Result<SpAttachmentItem> = withContext(Dispatchers.IO) {
+        if (itemId <= 0L) return@withContext Result.failure(Exception("ID công việc không hợp lệ"))
+        if (fileBytes.isEmpty()) return@withContext Result.failure(Exception("Tệp đính kèm trống"))
+        var activeToken = getValidToken() ?: return@withContext Result.failure(Exception("Chưa có phiên đăng nhập hợp lệ"))
+
+        try {
+            val siteUrl = getSiteUrl().removeSuffix("/")
+            val listId = if (isMainProject) getListChinhId() else getListChiTietId()
+            val safeName = sanitizeSpAttachmentName(rawFileName)
+            val odataEscapedName = safeName.replace("'", "''")
+            val encodedName = java.net.URLEncoder.encode(odataEscapedName, "UTF-8").replace("+", "%20")
+            val url = "$siteUrl/_api/web/lists(guid'$listId')/items($itemId)/AttachmentFiles/add(FileName='$encodedName')"
+
+            var digest = getFormDigest(siteUrl, activeToken)
+            val reqBody = fileBytes.toRequestBody("application/octet-stream".toMediaType())
+
+            var reqBuilder = Request.Builder()
+                .url(url)
+                .header("Authorization", "Bearer $activeToken")
+                .header("Accept", "application/json;odata=verbose")
+                .header("Content-Type", "application/octet-stream")
+            if (!digest.isNullOrBlank()) reqBuilder.header("X-RequestDigest", digest)
+
+            var resp = httpClient.newCall(reqBuilder.post(reqBody).build()).execute()
+            if (resp.code == 401) {
+                resp.close()
+                val refreshed = forceRefreshToken()
+                if (refreshed != null) {
+                    activeToken = refreshed
+                    digest = getFormDigest(siteUrl, activeToken)
+                    reqBuilder = Request.Builder()
+                        .url(url)
+                        .header("Authorization", "Bearer $activeToken")
+                        .header("Accept", "application/json;odata=verbose")
+                        .header("Content-Type", "application/octet-stream")
+                    if (!digest.isNullOrBlank()) reqBuilder.header("X-RequestDigest", digest)
+                    resp = httpClient.newCall(reqBuilder.post(reqBody).build()).execute()
+                }
+            }
+
+            resp.use { r ->
+                val respText = r.body?.string() ?: ""
+                if (r.isSuccessful) {
+                    val json = try { gson.fromJson(respText, JsonObject::class.java) } catch (_: Exception) { null }
+                    val d = json?.getAsJsonObject("d")
+                    val fName = d?.get("FileName")?.takeIf { !it.isJsonNull }?.asString ?: safeName
+                    val relUrl = d?.get("ServerRelativeUrl")?.takeIf { !it.isJsonNull }?.asString ?: ""
+                    Result.success(SpAttachmentItem(fileName = fName, serverRelativeUrl = relUrl))
+                } else {
+                    Result.failure(Exception("Không thể tải tệp lên SharePoint (HTTP ${r.code})"))
+                }
+            }
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    suspend fun downloadAttachmentFile(attachment: SpAttachmentItem): Result<File> = withContext(Dispatchers.IO) {
+        try {
+            val attachDir = File(context.cacheDir, "sp_attachments")
+            if (!attachDir.exists()) attachDir.mkdirs()
+            val safeLocalName = "${attachment.serverRelativeUrl.hashCode().toUInt()}_${sanitizeSpAttachmentName(attachment.fileName)}"
+            val localFile = File(attachDir, safeLocalName)
+            if (localFile.exists() && localFile.length() > 0L) {
+                return@withContext Result.success(localFile)
+            }
+
+            var activeToken = getValidToken() ?: return@withContext Result.failure(Exception("Chưa có phiên đăng nhập"))
+            val siteUrl = getSiteUrl().removeSuffix("/")
+            val escapedRel = attachment.serverRelativeUrl.replace("'", "''")
+            val apiDownloadUrl = "$siteUrl/_api/web/GetFileByServerRelativeUrl('$escapedRel')/\$value"
+
+            var req = Request.Builder()
+                .url(apiDownloadUrl)
+                .header("Authorization", "Bearer $activeToken")
+                .build()
+
+            var resp = httpClient.newCall(req).execute()
+            if (resp.code == 401) {
+                resp.close()
+                val refreshed = forceRefreshToken()
+                if (refreshed != null) {
+                    activeToken = refreshed
+                    req = Request.Builder()
+                        .url(apiDownloadUrl)
+                        .header("Authorization", "Bearer $activeToken")
+                        .build()
+                    resp = httpClient.newCall(req).execute()
+                }
+            }
+
+            if (!resp.isSuccessful) {
+                resp.close()
+                val directUrl = "https://seazenvn.sharepoint.com${attachment.serverRelativeUrl}"
+                req = Request.Builder()
+                    .url(directUrl)
+                    .header("Authorization", "Bearer $activeToken")
+                    .build()
+                resp = httpClient.newCall(req).execute()
+            }
+
+            resp.use { r ->
+                if (!r.isSuccessful) {
+                    return@withContext Result.failure(Exception("Lỗi tải tệp đính kèm (HTTP ${r.code})"))
+                }
+                val body = r.body ?: return@withContext Result.failure(Exception("Dữ liệu tệp trống"))
+                body.byteStream().use { input ->
+                    java.io.FileOutputStream(localFile).use { output ->
+                        input.copyTo(output)
+                        output.flush()
+                    }
+                }
+                Result.success(localFile)
+            }
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    suspend fun deleteItemAttachment(
+        isMainProject: Boolean,
+        itemId: Long,
+        fileName: String
+    ): Result<Unit> = withContext(Dispatchers.IO) {
+        if (itemId <= 0L) return@withContext Result.failure(Exception("ID không hợp lệ"))
+        var activeToken = getValidToken() ?: return@withContext Result.failure(Exception("Chưa có phiên đăng nhập"))
+
+        try {
+            val siteUrl = getSiteUrl().removeSuffix("/")
+            val listId = if (isMainProject) getListChinhId() else getListChiTietId()
+            val odataEscaped = fileName.replace("'", "''")
+            val encodedName = java.net.URLEncoder.encode(odataEscaped, "UTF-8").replace("+", "%20")
+            val url = "$siteUrl/_api/web/lists(guid'$listId')/items($itemId)/AttachmentFiles/getByFileName('$encodedName')"
+
+            var digest = getFormDigest(siteUrl, activeToken)
+            var reqBuilder = Request.Builder()
+                .url(url)
+                .header("Authorization", "Bearer $activeToken")
+                .header("X-HTTP-Method", "DELETE")
+                .header("If-Match", "*")
+            if (!digest.isNullOrBlank()) reqBuilder.header("X-RequestDigest", digest)
+
+            var resp = httpClient.newCall(reqBuilder.post("".toRequestBody(null)).build()).execute()
+            if (resp.code == 401) {
+                resp.close()
+                val refreshed = forceRefreshToken()
+                if (refreshed != null) {
+                    activeToken = refreshed
+                    digest = getFormDigest(siteUrl, activeToken)
+                    reqBuilder = Request.Builder()
+                        .url(url)
+                        .header("Authorization", "Bearer $activeToken")
+                        .header("X-HTTP-Method", "DELETE")
+                        .header("If-Match", "*")
+                    if (!digest.isNullOrBlank()) reqBuilder.header("X-RequestDigest", digest)
+                    resp = httpClient.newCall(reqBuilder.post("".toRequestBody(null)).build()).execute()
+                }
+            }
+
+            resp.use { r ->
+                if (r.isSuccessful || r.code in listOf(200, 204, 404)) {
+                    Result.success(Unit)
+                } else {
+                    Result.failure(Exception("Không thể xóa tệp đính kèm (HTTP ${r.code})"))
+                }
+            }
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
     }
 }

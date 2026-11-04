@@ -20,6 +20,7 @@ PROJECT_DIR = SCRIPT_DIR
 APP_BUILD_GRADLE = os.path.join(PROJECT_DIR, "app", "build.gradle.kts")
 TASK_REPO_FILE = os.path.join(PROJECT_DIR, "app", "src", "main", "java", "com", "seazen", "task", "data", "TaskRepository.kt")
 RELEASE_APK_SOURCE = os.path.join(PROJECT_DIR, "app", "build", "outputs", "apk", "release", "app-release.apk")
+DEST_APK_RELEASE_DIR = os.path.join(PROJECT_DIR, "app", "build", "outputs", "apk", "release", "SZ_Task.apk")
 ROOT_WORKSPACE = os.path.abspath(os.path.join(PROJECT_DIR, ".."))
 DEST_APK_ROOT = os.path.join(ROOT_WORKSPACE, "SZ_Task.apk")
 DEST_APK_LOCAL = os.path.join(PROJECT_DIR, "SZ_Task.apk")
@@ -209,6 +210,7 @@ def build_apk():
 
     file_size_mb = os.path.getsize(RELEASE_APK_SOURCE) / (1024 * 1024)
 
+    shutil.copy2(RELEASE_APK_SOURCE, DEST_APK_RELEASE_DIR)
     shutil.copy2(RELEASE_APK_SOURCE, DEST_APK_ROOT)
     shutil.copy2(RELEASE_APK_SOURCE, DEST_APK_LOCAL)
 

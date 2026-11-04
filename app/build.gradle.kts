@@ -12,8 +12,8 @@ android {
         applicationId = "com.seazen.task"
         minSdk = 26
         targetSdk = 35
-        versionCode = 22
-        versionName = "1.9.3"
+        versionCode = 23
+        versionName = "1.9.4"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }

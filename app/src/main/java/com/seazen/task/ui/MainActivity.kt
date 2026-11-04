@@ -48,6 +48,10 @@ import com.seazen.task.data.TaskRepository
 import com.seazen.task.data.AppUpdateDownloader
 import com.seazen.task.data.AppUpdateInfo
 import com.seazen.task.data.parseLocalDate
+import com.seazen.task.notification.TaskReminderManager
+import android.os.Build
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import kotlinx.coroutines.launch
 import java.time.LocalDate
 import java.time.YearMonth
@@ -358,9 +362,34 @@ fun MainContainerScreen(
     val currentUserName = curUser?.name ?: repository.getSavedUserName()
 
     var lastSyncTimeMs by remember { mutableStateOf(0L) }
+    var showNotifPrompt by remember { mutableStateOf(false) }
+
+    val notifPermLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        TaskReminderManager.markInitialPromptShown(context)
+        if (granted && TaskReminderManager.hasNotificationPermission(context)) {
+            TaskReminderManager.setReminderEnabled(context, true)
+            TaskReminderManager.sendTaskSummaryNotification(context, forceShowEvenIfZero = true)
+            Toast.makeText(
+                context,
+                if (appLang == "en") "Automatic task reminders enabled" else "Đã bật thông báo nhắc việc tự động",
+                Toast.LENGTH_SHORT
+            ).show()
+        } else {
+            TaskReminderManager.openAppNotificationSettings(context)
+        }
+    }
 
     // Tu dong dong bo SharePoint khi mo ung dung hoac quay lai tu nen (throttle 15s)
     LaunchedEffect(resumeTrigger) {
+        TaskReminderManager.ensureNotificationChannel(context)
+        if (!TaskReminderManager.hasNotificationPermission(context) && !TaskReminderManager.hasShownInitialPrompt(context)) {
+            showNotifPrompt = true
+        } else if (TaskReminderManager.hasNotificationPermission(context) && TaskReminderManager.isReminderEnabled(context)) {
+            TaskReminderManager.scheduleDailyReminders(context)
+        }
+
         val now = System.currentTimeMillis()
         if (now - lastSyncTimeMs > 15_000L) {
             lastSyncTimeMs = now
@@ -796,6 +825,25 @@ fun MainContainerScreen(
             currentVersion = repository.getCurrentAppVersion(),
             resumeTrigger = resumeTrigger,
             onDismiss = { showUpdateDialog = false }
+        )
+    }
+
+    if (showNotifPrompt) {
+        NotificationPermissionPromptDialog(
+            lang = appLang,
+            onEnableClick = {
+                showNotifPrompt = false
+                TaskReminderManager.markInitialPromptShown(context)
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                    notifPermLauncher.launch(android.Manifest.permission.POST_NOTIFICATIONS)
+                } else {
+                    TaskReminderManager.openAppNotificationSettings(context)
+                }
+            },
+            onDismiss = {
+                showNotifPrompt = false
+                TaskReminderManager.markInitialPromptShown(context)
+            }
         )
     }
 }
@@ -2686,6 +2734,159 @@ fun SettingsTab(
             }
         }
 
+        // Cai dat Thong bao nhac viec tu dong (Group B1)
+        item {
+            var hasPerm by remember { mutableStateOf(TaskReminderManager.hasNotificationPermission(context)) }
+            var reminderEnabled by remember { mutableStateOf(TaskReminderManager.isReminderEnabled(context) && hasPerm) }
+
+            val settingsPermLauncher = rememberLauncherForActivityResult(
+                contract = ActivityResultContracts.RequestPermission()
+            ) { granted ->
+                hasPerm = TaskReminderManager.hasNotificationPermission(context)
+                if (granted && hasPerm) {
+                    reminderEnabled = true
+                    TaskReminderManager.setReminderEnabled(context, true)
+                    TaskReminderManager.sendTaskSummaryNotification(context, forceShowEvenIfZero = true)
+                } else {
+                    TaskReminderManager.openAppNotificationSettings(context)
+                }
+            }
+
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(16.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                border = CardDefaults.outlinedCardBorder().copy(brush = androidx.compose.ui.graphics.SolidColor(MaterialTheme.colorScheme.outline))
+            ) {
+                Column(
+                    modifier = Modifier.padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(10.dp),
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Surface(
+                                shape = RoundedCornerShape(10.dp),
+                                color = PrimaryPurple.copy(alpha = 0.08f),
+                                modifier = Modifier.size(38.dp)
+                            ) {
+                                Box(contentAlignment = Alignment.Center) {
+                                    Icon(
+                                        imageVector = Icons.Default.NotificationsActive,
+                                        contentDescription = null,
+                                        tint = PrimaryPurple,
+                                        modifier = Modifier.size(20.dp)
+                                    )
+                                }
+                            }
+                            Column {
+                                Text(
+                                    text = if (isVi) "Thông báo nhắc việc tự động" else "Automatic Task Reminders",
+                                    fontSize = 14.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.onSurface
+                                )
+                                Text(
+                                    text = if (isVi) "Nhắc việc lúc 08:00 & 16:00 hàng ngày" else "Daily reminders at 08:00 & 16:00",
+                                    fontSize = 11.sp,
+                                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+                                )
+                            }
+                        }
+
+                        Switch(
+                            checked = reminderEnabled && hasPerm,
+                            onCheckedChange = { wantEnable ->
+                                hasPerm = TaskReminderManager.hasNotificationPermission(context)
+                                if (wantEnable) {
+                                    if (hasPerm) {
+                                        reminderEnabled = true
+                                        TaskReminderManager.setReminderEnabled(context, true)
+                                        Toast.makeText(
+                                            context,
+                                            if (isVi) "Đã bật hẹn giờ nhắc việc tự động" else "Automatic reminders enabled",
+                                            Toast.LENGTH_SHORT
+                                        ).show()
+                                    } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                                        settingsPermLauncher.launch(android.Manifest.permission.POST_NOTIFICATIONS)
+                                    } else {
+                                        TaskReminderManager.openAppNotificationSettings(context)
+                                    }
+                                } else {
+                                    reminderEnabled = false
+                                    TaskReminderManager.setReminderEnabled(context, false)
+                                    Toast.makeText(
+                                        context,
+                                        if (isVi) "Đã tắt nhắc việc tự động" else "Automatic reminders disabled",
+                                        Toast.LENGTH_SHORT
+                                    ).show()
+                                }
+                            },
+                            colors = SwitchDefaults.colors(
+                                checkedThumbColor = Color.White,
+                                checkedTrackColor = PrimaryPurple
+                            )
+                        )
+                    }
+
+                    if (!hasPerm) {
+                        Surface(
+                            shape = RoundedCornerShape(8.dp),
+                            color = Color(0xFFFEF2F2),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text(
+                                text = if (isVi) "Quyền thông báo đang tắt trên điện thoại. Vui lòng bật quyền thông báo để nhận nhắc việc."
+                                else "Notifications are disabled in system settings. Please enable them to receive task reminders.",
+                                fontSize = 11.sp,
+                                color = Color(0xFFDC2626),
+                                modifier = Modifier.padding(10.dp)
+                            )
+                        }
+                    }
+
+                    OutlinedButton(
+                        onClick = {
+                            hasPerm = TaskReminderManager.hasNotificationPermission(context)
+                            if (hasPerm) {
+                                reminderEnabled = true
+                                TaskReminderManager.setReminderEnabled(context, true)
+                                TaskReminderManager.sendTaskSummaryNotification(context, forceShowEvenIfZero = true)
+                                Toast.makeText(
+                                    context,
+                                    if (isVi) "Đã gửi thông báo nhắc việc lên thanh trạng thái" else "Test reminder sent",
+                                    Toast.LENGTH_SHORT
+                                ).show()
+                            } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                                settingsPermLauncher.launch(android.Manifest.permission.POST_NOTIFICATIONS)
+                            } else {
+                                TaskReminderManager.openAppNotificationSettings(context)
+                            }
+                        },
+                        modifier = Modifier.fillMaxWidth().height(40.dp),
+                        shape = RoundedCornerShape(10.dp),
+                        border = BorderStroke(1.dp, PrimaryPurple.copy(alpha = 0.4f)),
+                        colors = ButtonDefaults.outlinedButtonColors(contentColor = PrimaryPurple)
+                    ) {
+                        Icon(Icons.Default.Notifications, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = if (isVi) "Gửi thử thông báo nhắc việc ngay" else "Send Test Reminder Now",
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                    }
+                }
+            }
+        }
+
         // Thong tin phien ban ung dung & Cap nhat OTA chuyen nghiep
         item {
             Card(
@@ -3174,6 +3375,8 @@ fun TaskDetailBottomSheet(
     onDelete: (() -> Unit)? = null,
     onOpenParentProject: ((Long) -> Unit)? = null
 ) {
+    val context = LocalContext.current
+    val repository = remember { TaskRepository.getInstance(context) }
     val lang = LocalAppLanguage.current
     val str = AppStrings.of(lang)
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
@@ -3326,6 +3529,14 @@ fun TaskDetailBottomSheet(
                     }
                 }
             }
+
+            // Khu vuc dinh kem hinh anh nghiem thu & tai lieu SharePoint (TaskChiTiet)
+            TaskAttachmentSection(
+                repository = repository,
+                isMainProject = false,
+                itemId = task.id,
+                canEdit = canEdit
+            )
 
             Spacer(modifier = Modifier.height(6.dp))
 
@@ -3615,6 +3826,7 @@ fun ProjectDetailBottomSheet(
     val lang = LocalAppLanguage.current
     val str = AppStrings.of(lang)
     val context = LocalContext.current
+    val repository = remember { TaskRepository.getInstance(context) }
     val displayProgress = project.computedProgress(childTasks)
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val scrollState = rememberScrollState()
@@ -3776,6 +3988,14 @@ fun ProjectDetailBottomSheet(
                     Text(text = str.actionExtendDeadline, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
                 }
             }
+
+            // Khu vuc dinh kem hinh anh nghiem thu & tai lieu SharePoint (TaskChinh / Du an)
+            TaskAttachmentSection(
+                repository = repository,
+                isMainProject = true,
+                itemId = project.id,
+                canEdit = true
+            )
 
             // Tiêu đề Công việc chi tiết kèm nút Thêm công việc con
             Row(
